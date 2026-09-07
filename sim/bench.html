@@ -301,7 +301,10 @@ function updateInk() {
   const c = ColorHSV(gHue, INK_SAT, 255);
   inkR = (c >> 16) & 255; inkG = (c >> 8) & 255; inkB = c & 255;
 }
-function rampHue() { gHue = u16(gHue + HUE_STEP); updateInk(); syncHue(); }
+function rampHue() {
+  gHue = u16(gHue + HUE_STEP); updateInk(); syncHue();
+  gFeedback = 2; gFeedbackTo = now + 400;          // hold the badge on the new colour
+}
 const POWER_LIMIT_MA = 700;
 const TRI_ASPECT = 1.732;
 const EYE_CX = 0, EYE_CY = 41;
@@ -1020,16 +1023,19 @@ function pushFrame() {
 
 /* --- on-badge readout, as in showFeedback() ------------------------------- */
 let gFeedback = 0, gFeedbackTo = 0;          // 0 none, 1 mode, 2 brightness
-// Only the animation number gets a readout. Brightness deliberately does not:
-// while ramping you want to see the animation AT that brightness.
+// While navigating, the whole badge sits lit in the house ink at the set
+// brightness, so a glance shows what it is configured to. The animation number
+// rides on top as a brighter run in the same ink.
+const NAV_FILL = 150, NAV_FILL_EYE = 190, NAV_MARK = 255;
 function showFeedback() {
   fbClear();
-  {
+  for (let i = 0; i < RING; i++) fbTint(i, inkR, inkG, inkB, NAV_FILL);
+  for (let i = GRB_FIRST; i < N; i++) fbTint(i, inkR, inkG, inkB, NAV_FILL_EYE);
+  if (gFeedback === 1) {
     // Perimeter order, so the count runs down the edge instead of turning off
     // into a board's leg partway through.
-    for (let r = 0; r <= gMode && r < PERIM_COUNT; r++) fbSet(PERIM[r], 255, 140, 0);
-    fbAdd(CORNER_BR, 0, 0, 60); fbAdd(CORNER_BL, 0, 0, 60); fbAdd(CORNER_TOP, 0, 0, 60);
-    fbFill(GRB_FIRST, N, 90, 60, 0);
+    for (let r = 0; r <= gMode && r < PERIM_COUNT; r++)
+      fbTint(PERIM[r], inkR, inkG, inkB, NAV_MARK);
   }
 }
 
@@ -1207,6 +1213,7 @@ function rampBrightness() {
   else if (v <= BRIGHT_MIN) { v = BRIGHT_MIN; gBrightDir =  1; }
   gBright = v;
   syncBright();
+  gFeedback = 2; gFeedbackTo = now + 400;          // hold the fill through the ramp
 }
 
 /* --- UI ------------------------------------------------------------------- */

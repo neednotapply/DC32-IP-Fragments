@@ -93,6 +93,13 @@ the animation on, and the hold steps it back, so you land on the animation you
 started from. Two ordinary short presses inside the window still advance twice,
 and a hold after the window has expired falls through to brightness.
 
+While you are navigating — stepping animations, ramping brightness, ramping
+colour — the whole badge sits lit in the house ink at the set brightness, so a
+glance tells you what it is configured to. The animation number rides on top of
+that as a brighter run in the same ink: same hue so the colour still reads, about
+three and a half times the output so the count is still countable. `NAV_FILL`
+and `NAV_MARK` set the two levels.
+
 Both give a readout on the badge itself: a bar around the perimeter for
 brightness, or a count of lit pixels from the bottom-right corner for the
 animation number. Both count in perimeter order, so they run down the edge

@@ -1255,23 +1255,33 @@ const Anim ANIMS[] = {
  *  changed without plugging into a serial monitor.
  * ===========================================================================
  */
-enum Feedback { FB_NONE, FB_MODE };
+enum Feedback { FB_NONE, FB_MODE, FB_LEVEL };
 Feedback gFeedback   = FB_NONE;
 uint32_t gFeedbackTo = 0;
 
-// Only the animation number gets a readout. Brightness deliberately does not:
-// while you are ramping you want to see the animation AT that brightness, and a
-// bar drawn over the top of it tells you less than the badge itself does.
+// While you are navigating -- stepping animations, ramping brightness, ramping
+// colour -- the whole badge sits lit in the house ink at the set brightness, so
+// a glance tells you what it is actually configured to. The old readout drew a
+// few markers on a dark board, which hid the two things you were adjusting.
+//
+// The animation number rides on top of that as a brighter run in the same ink.
+// Same hue, so the colour still reads; roughly three and a half times the
+// output, so the count is still countable against the fill.
+#define NAV_FILL     150
+#define NAV_FILL_EYE 190
+#define NAV_MARK     255
+
 void showFeedback() {
   fbClear();
-  // One lit pixel per animation number, counted up from the bottom-right
-  // corner, with the corners kept visible for orientation. Perimeter order, so
-  // the count runs down the edge instead of turning off into a board's leg.
-  for (uint8_t r = 0; r <= gMode && r < PERIM_COUNT; r++) fbSet(PERIM[r], 255, 140, 0);
-  fbAdd(CORNER_BR, 0, 0, 60);
-  fbAdd(CORNER_BL, 0, 0, 60);
-  fbAdd(CORNER_TOP, 0, 0, 60);
-  fbFill(GRB_FIRST, PIXEL_COUNT, 90, 60, 0);
+  for (uint8_t i = 0; i < RING_COUNT; i++)          fbTint(i, inkR, inkG, inkB, NAV_FILL);
+  for (uint8_t i = GRB_FIRST; i < PIXEL_COUNT; i++) fbTint(i, inkR, inkG, inkB, NAV_FILL_EYE);
+
+  if (gFeedback == FB_MODE) {
+    // Counted up from the bottom-right corner in perimeter order, so the run
+    // goes down the edge rather than turning off into a board's leg.
+    for (uint8_t r = 0; r <= gMode && r < PERIM_COUNT; r++)
+      fbTint(PERIM[r], inkR, inkG, inkB, NAV_MARK);
+  }
 }
 
 /* ===========================================================================
@@ -1298,6 +1308,8 @@ void setMode(uint8_t m) {
 void rampHue() {
   gHue = (uint16_t)(gHue + HUE_STEP);
   updateInk();
+  gFeedback   = FB_LEVEL;                          // hold the badge on the new colour
+  gFeedbackTo = gNow + 400;
 }
 
 void rampBrightness() {
@@ -1308,6 +1320,11 @@ void rampBrightness() {
   if (v >= BRIGHT_MAX)      { v = BRIGHT_MAX; gBrightDir = -1; }   // turn round
   else if (v <= BRIGHT_MIN) { v = BRIGHT_MIN; gBrightDir =  1; }
   gBright = (uint8_t)v;
+
+  // Each step pushes the window out, so the fill holds for the whole hold and
+  // lingers briefly after you let go.
+  gFeedback   = FB_LEVEL;
+  gFeedbackTo = gNow + 400;
 }
 
 /* ===========================================================================
