@@ -183,33 +183,55 @@ animation table — after the list shrinks, say — is discarded rather than use
 
 ## Wireless control
 
-The badge runs a soft access point and serves the test bench itself:
+Over **BLE**, not WiFi. The badge advertises as `Fragments` and carries its whole
+state in one characteristic:
 
 | | |
 |---|---|
-| Network | `Fragments` |
-| Password | `allseeing` |
-| Address | `http://192.168.4.1` |
+| Service | `0xFFF0` |
+| Characteristic | `0xFFF1` — read, write, notify |
+| Payload | 4 bytes: `animation`, `brightness`, `hue` little-endian |
 
-Joining should open the page by itself; there is a captive-portal redirect for
-clients that ask. The page pushes changes as you make them and polls for state,
-so pressing the physical button shows up in the browser and the other way round.
+Write it to set them, read it to get them, and it notifies on every change — so
+pressing the physical button reaches the browser as readily as the other way
+round. Everything written is range-checked; anything in radio range can write it,
+and an out-of-range animation would index off the end of the table.
 
-The page is not a second implementation — `tools/make_webpage.py` takes
-`sim/bench.html`, hides the parts that only make sense on a desk, appends the
-layer that talks to the badge, gzips it and writes `Fragments_NNA/webpage.h`.
-So the preview in your hand runs the identical integer maths the badge does.
-Re-run it after editing the bench:
+The test bench is the remote. Open it in Chrome or Edge (desktop or Android —
+Web Bluetooth is not available in Safari) and press **Connect badge**. The
+preview keeps running locally, using the same integer maths the badge is running,
+so you are watching the badge rather than a video of it.
+
+### Why not WiFi
+
+This was a soft AP first and it would not work on this board. The failure is
+worth writing down, because everything reports healthy:
+
+- `softAP()` returns true; the driver reads back the right SSID, `ssid_hidden 0`,
+  WPA2 *and* open, channel 1 *and* 11, 19.5 dBm, 100 ms beacon interval
+- receive is perfect — the badge hears 41 networks, the nearest at −51 dBm
+- transmit is fine — BLE advertising from the same antenna is picked up at −40 dBm
+- erasing NVS to force PHY recalibration changed nothing
+- yielding in `loop()` so the WiFi task is never starved changed nothing
+- two independent clients, a laptop and a phone, never see the beacon
+
+So the radio works in both directions and the fault is specific to AP beaconing.
+`WIFI_ENABLED 1` and `BLE_ENABLED 0` will build it for anyone whose board does
+not have the problem — the page and the HTTP endpoints are still there. The two
+radios are mutually exclusive; both stacks together overflow the partition.
+
+`tools/make_webpage.py` takes `sim/bench.html`, hides what only makes sense on a
+desk, appends the layer that talks to the badge over HTTP, gzips it and writes
+`Fragments_NNA/webpage.h`. Re-run it after editing the bench:
 
 ```bash
 python3 tools/make_webpage.py
 ```
 
-**The radio is not free.** A soft AP costs well over a hundred milliamps —
-more than every LED at the default brightness put together. `WIFI_ENABLED 0`
-compiles it out entirely, and it is overridable from the command line, which is
-also how the off-target test harness builds the animation code without pulling
-in the network stack.
+**Neither radio is free.** A soft AP costs well over a hundred milliamps; BLE
+advertising is far cheaper but not nothing. `BLE_ENABLED 0` compiles it out, and
+both flags are overridable from the command line, which is how the off-target
+test harness builds the animation code without a radio stack.
 
 ## Test bench
 

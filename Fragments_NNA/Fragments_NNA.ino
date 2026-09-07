@@ -62,13 +62,36 @@
 #include <esp_system.h>
 #include <Preferences.h>
 
-// Wireless control. Set WIFI_ENABLED to 0 to leave the radio off entirely --
-// a soft AP costs well over a hundred milliamps, which on a battery badge is
-// more than every LED at the default brightness put together. Overridable from
-// the command line (-DWIFI_ENABLED=0) so the off-target test harness can build
-// the animation code without the whole network stack.
+// Wireless control, over BLE.
+//
+// This was WiFi first and the soft AP would not work on this board: softAP()
+// succeeds, the driver reports the right SSID, channel, 19.5 dBm and a 100 ms
+// beacon, and no client ever sees it. The radio itself is fine -- the badge
+// hears 41 networks at -51 dBm, and BLE advertising from the same antenna is
+// picked up at -48 dBm. Whatever it is, it is specific to AP beaconing.
+//
+// BLE works, costs far less power than an AP, and Web Bluetooth lets the test
+// bench drive it straight from a browser. WIFI_ENABLED is left in place for
+// anyone whose board does not have the problem, but the two are mutually
+// exclusive -- both stacks together will not fit the default partition.
 #ifndef WIFI_ENABLED
-  #define WIFI_ENABLED 1
+  #define WIFI_ENABLED 0
+#endif
+#ifndef BLE_ENABLED
+  #define BLE_ENABLED 1
+#endif
+#if WIFI_ENABLED && BLE_ENABLED
+  #error "Enable one radio or the other -- both will not fit."
+#endif
+
+#if BLE_ENABLED
+  #include <BLEDevice.h>
+  #include <BLEServer.h>
+  #include <BLEUtils.h>
+  #include <BLE2902.h>
+  #define BLE_NAME      "Fragments"
+  #define BLE_SERVICE   ((uint16_t)0xFFF0)
+  #define BLE_STATE     ((uint16_t)0xFFF1)
 #endif
 #if WIFI_ENABLED
   #include <WiFi.h>
@@ -1414,9 +1437,91 @@ void serviceButton() {
   }
 }
 
+#if BLE_ENABLED
+/* ===========================================================================
+ *  WIRELESS CONTROL, OVER BLE
+ *
+ *  One characteristic carries the whole of the badge's state as four bytes:
+ *  animation, brightness, and the hue as a little-endian pair. Writing it sets
+ *  them; reading gets them; a notification goes out whenever they change, so a
+ *  press on the physical button reaches the browser as readily as the other way
+ *  round. Everything written is range-checked -- anything in radio range can
+ *  write it, and an out-of-range animation would index off the end of the table.
+ * ===========================================================================
+ */
+BLECharacteristic *stateChar = nullptr;
+bool     bleLinked  = false;
+uint32_t blePubAt   = 0;
+uint8_t  blePubMode = 255, blePubBright = 0;
+uint16_t blePubHue  = 0;
+
+void blePublish() {
+  if (!stateChar) return;
+  uint8_t v[4] = { gMode, gBright, (uint8_t)(gHue & 0xFF), (uint8_t)(gHue >> 8) };
+  stateChar->setValue(v, 4);
+  if (bleLinked) stateChar->notify();
+  blePubMode = gMode; blePubBright = gBright; blePubHue = gHue; blePubAt = gNow;
+}
+
+class StateCallbacks : public BLECharacteristicCallbacks {
+  void onWrite(BLECharacteristic *c) override {
+    uint8_t *d = c->getData();
+    if (!d || c->getLength() < 4) return;
+    uint8_t  m = d[0], b = d[1];
+    uint16_t h = (uint16_t)(d[2] | ((uint16_t)d[3] << 8));
+    if (m < ANIM_COUNT && m != gMode) setMode(m);
+    if (b >= BRIGHT_MIN && b <= BRIGHT_MAX && b != gBright) { gBright = b; settingsTouch(); }
+    if (h != gHue) { gHue = h; updateInk(); settingsTouch(); }
+    blePubMode = gMode; blePubBright = gBright; blePubHue = gHue;   // do not echo back
+  }
+};
+
+class ServerCallbacks : public BLEServerCallbacks {
+  void onConnect(BLEServer *) override { bleLinked = true;  Serial.println("ble: linked"); }
+  void onDisconnect(BLEServer *srv) override {
+    bleLinked = false; Serial.println("ble: dropped");
+    srv->startAdvertising();                       // be findable again
+  }
+};
+
+void bleBegin() {
+  BLEDevice::init(BLE_NAME);
+  BLEServer *srv = BLEDevice::createServer();
+  srv->setCallbacks(new ServerCallbacks());
+
+  BLEService *svc = srv->createService(BLEUUID(BLE_SERVICE));
+  stateChar = svc->createCharacteristic(
+      BLEUUID(BLE_STATE),
+      BLECharacteristic::PROPERTY_READ  | BLECharacteristic::PROPERTY_WRITE |
+      BLECharacteristic::PROPERTY_WRITE_NR | BLECharacteristic::PROPERTY_NOTIFY);
+  stateChar->addDescriptor(new BLE2902());
+  stateChar->setCallbacks(new StateCallbacks());
+  blePublish();
+  svc->start();
+
+  BLEAdvertising *adv = BLEDevice::getAdvertising();
+  adv->addServiceUUID(BLEUUID(BLE_SERVICE));
+  adv->setScanResponse(true);
+  BLEDevice::startAdvertising();
+
+  Serial.printf("ble: advertising as \"%s\", service 0x%04X, state 0x%04X\n",
+                BLE_NAME, BLE_SERVICE, BLE_STATE);
+  Serial.printf("ble: mac %s\n", BLEDevice::getAddress().toString().c_str());
+}
+
+// Push local changes out, but not faster than a client can care about: a
+// brightness ramp moves the value twenty-five times a second and there is no
+// point notifying every step of it.
+void bleService() {
+  if (gMode == blePubMode && gBright == blePubBright && gHue == blePubHue) return;
+  if ((gNow - blePubAt) < 120) return;
+  blePublish();
+}
+#endif
+
 #if WIFI_ENABLED
 /* ===========================================================================
- *  WIRELESS CONTROL
+ *  WIRELESS CONTROL, OVER WIFI
  *
  *  The badge runs a soft AP and serves the test bench itself, so the page you
  *  get is the same one in sim/, generated into webpage.h by
@@ -1530,6 +1635,9 @@ void setup() {
                 "  press, then hold   = ramp colour\n",
                 (unsigned)ANIM_COUNT, BRIGHT_MIN, BRIGHT_MAX);
 
+#if BLE_ENABLED
+  bleBegin();
+#endif
 #if WIFI_ENABLED
   webBegin();
 #endif
@@ -1540,6 +1648,9 @@ void loop() {
 
   serviceButton();
   settingsService();
+#if BLE_ENABLED
+  bleService();
+#endif
 #if WIFI_ENABLED
   dns.processNextRequest();
   server.handleClient();
@@ -1573,4 +1684,10 @@ void loop() {
     floorEye();                                      // the power LED never gets the last word
     pushFrame();
   }
+
+  // Hand the scheduler a slot. loop() is a FreeRTOS task like any other, and
+  // spinning here without yielding starves whatever else wants to run -- the
+  // radio stack included. It did not turn out to be what ailed the soft AP, but
+  // busy-waiting a whole core for nothing is not worth defending either.
+  delay(1);
 }

@@ -89,6 +89,14 @@
                    background: var(--k, var(--silk-faint)); box-shadow: 0 0 7px var(--k, transparent); }
 
   .transport { display: flex; gap: 8px; align-items: center; }
+  .ctl.live { color: #16110a; background: #3ac87a; border-color: #3ac87a; }
+  .link { display: inline-flex; align-items: center; gap: 7px; font-family: var(--f-mono);
+          font-size: 11px; letter-spacing: .09em; text-transform: uppercase;
+          color: var(--silk-faint); }
+  .link::before { content: ""; width: 8px; height: 8px; border-radius: 50%;
+                  background: var(--trace-lit); }
+  .link.on { color: var(--silk); }
+  .link.on::before { background: #3ac87a; box-shadow: 0 0 8px #3ac87a; }
 
   /* ---- controls ---- */
   button { font: inherit; color: inherit; background: none; border: none; cursor: pointer; }
@@ -210,6 +218,8 @@
         <div class="transport">
           <button class="ctl" id="playBtn">Pause</button>
           <button class="ctl" id="badgeBtn" title="Click for next animation, hold for brightness, click-then-hold for colour">Badge button</button>
+          <button class="ctl" id="bleBtn" hidden>Connect badge</button>
+          <span class="link" id="bleLink" hidden>not linked</span>
         </div>
       </div>
     </section>
@@ -1334,6 +1344,81 @@ function tick(ts) {
     fpsCount++;
   }
   updateTelemetry(ts);
+}
+
+/* --- drive a real badge over Web Bluetooth ------------------------------- *
+ * The badge carries the whole of its state in one characteristic: animation,
+ * brightness, and the hue as a little-endian pair. Write it to set them, read
+ * it to get them, and it notifies whenever they change -- so a press on the
+ * physical button reaches this page as readily as the other way round.
+ *
+ * The preview keeps running locally either way. It is the same integer maths the
+ * badge is running, so what you see here is what the badge is doing rather than
+ * a video of it.                                                              */
+const BLE_SERVICE = 0xfff0, BLE_STATE = 0xfff1;
+let bleChar = null, bleBusy = false, bleFrom = false;
+let bleSent = { m: -1, b: -1, h: -1 };
+
+function bleStatus(text, on) {
+  const el = $("bleLink");
+  el.textContent = text; el.classList.toggle("on", !!on);
+  $("bleBtn").classList.toggle("live", !!on);
+  $("bleBtn").textContent = on ? "Linked" : "Connect badge";
+}
+
+function bleAdopt(dv) {
+  if (!dv || dv.byteLength < 4) return;
+  const m = dv.getUint8(0), b = dv.getUint8(1);
+  const h = dv.getUint8(2) | (dv.getUint8(3) << 8);
+  bleFrom = true;                                  // do not echo this straight back
+  if (m !== gMode && m < ANIMS.length) setMode(m, false);
+  if (b !== gBright) { gBright = b; syncBright(); }
+  if (h !== gHue)    { gHue = h; updateInk(); syncHue(); }
+  bleFrom = false;
+  bleSent = { m: gMode, b: gBright, h: gHue };
+}
+
+async function bleConnect() {
+  try {
+    bleStatus("choosing", false);
+    const dev = await navigator.bluetooth.requestDevice({
+      filters: [{ services: [BLE_SERVICE] }]
+    });
+    dev.addEventListener("gattserverdisconnected", () => {
+      bleChar = null; bleStatus("dropped", false);
+    });
+    bleStatus("connecting", false);
+    const gatt = await dev.gatt.connect();
+    const svc  = await gatt.getPrimaryService(BLE_SERVICE);
+    bleChar    = await svc.getCharacteristic(BLE_STATE);
+    await bleChar.startNotifications();
+    bleChar.addEventListener("characteristicvaluechanged",
+                             e => bleAdopt(e.target.value));
+    bleAdopt(await bleChar.readValue());
+    bleStatus("linked", true);
+  } catch (err) {
+    bleChar = null;
+    bleStatus(err && err.name === "NotFoundError" ? "no badge chosen" : "failed", false);
+  }
+}
+
+setInterval(async () => {
+  if (!bleChar || bleBusy || bleFrom) return;
+  if (gMode === bleSent.m && gBright === bleSent.b && gHue === bleSent.h) return;
+  bleBusy = true;
+  bleSent = { m: gMode, b: gBright, h: gHue };
+  try {
+    await bleChar.writeValueWithoutResponse(
+      new Uint8Array([gMode, gBright, gHue & 0xff, gHue >> 8]));
+  } catch (e) { bleStatus("write failed", false); }
+  bleBusy = false;
+}, 150);
+
+if (navigator.bluetooth) {
+  $("bleBtn").hidden = false;
+  $("bleLink").hidden = false;
+  $("bleBtn").addEventListener("click", bleConnect);
+  bleStatus("not linked", false);
 }
 
 syncMode(); syncBright(); updateInk(); syncHue();
