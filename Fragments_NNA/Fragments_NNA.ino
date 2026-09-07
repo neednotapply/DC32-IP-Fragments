@@ -1050,86 +1050,94 @@ void animRadar() {
 
 // Droplets spawn near the apex and run down the two slanted edges, splashing
 // when they reach a bottom corner. scratch[] doubles as the trail buffer.
-#define DROPS      20   // drops in flight
-#define DROP_COL    5   // half-width of a drop's column, in x units. Keep this
-                        // narrow: at 5 a drop picks out one column cleanly, and
-                        // widening it starts catching the neighbouring edge LEDs
-                        // and smearing the fall.
-#define DROP_HEAD  48   // head tolerance, in 1/16 height units
-#define DROP_TAIL 620   // how far the trail reaches above the head
+#define DROPS        10   // drops in flight
+#define DROP_COL      6   // half-width of a drop's column, in x units
+#define DROP_STRIKE  56   // how close the head has to pass to strike, 1/16 height
+#define TRAIL_DECAY 232   // how fast a struck LED fades again
+#define GLYPH_FLOOR  70   // the wall is never fully dark; see the gamma note
 void animMatrix() {
-  // The badge is a wall and the drops fall through it. A drop has a column and a
-  // height, moves at a constant speed through SPACE rather than from LED to LED,
-  // and lights whatever it passes over -- outline and tails alike. So the time
-  // between two lit LEDs is however long the empty board between them takes to
-  // cross: LED 49 and LED 59 share the column at x=38 with fifty height-units of
-  // nothing between them, and the drop takes that long to get from one to the
-  // other. The eye is not part of the wall.
+  // The badge is a wall, but a wall with almost no vertical density: on the
+  // slanted edges every LED sits at its own x, so a column holds about three
+  // LEDs with fifty height-units of nothing between them. Drawing a trail
+  // geometrically -- lighting whatever happens to lie just above the head --
+  // therefore lights almost nothing, and a drop reads as a lone point crossing
+  // empty board.
+  //
+  // So the trail lives on the LEDs instead of in the air. A drop STRIKES an LED
+  // as it passes and that LED decays on its own afterwards, which makes a column
+  // of three read as three flashes falling in sequence. The same decaying buffer
+  // carries the dim glyph field between drops, so the two are one mechanism.
   static int16_t dropX[DROPS], dropY[DROPS];
   static uint8_t dropSpd[DROPS];
   static bool    dropLive[DROPS];
 
-  if (gFrame == 0) { fbClear(); for (uint8_t d = 0; d < DROPS; d++) dropLive[d] = false; }
-
-  // A faint field of glyphs behind the rain. Real matrix rain is mostly dim
-  // characters with a few bright streams through it, and it keeps the wall from
-  // reading as a void wherever a drop happens not to be.
-  fbFill(0, RING_COUNT, 0, 0, 0);
-  for (uint8_t i = 0; i < RING_COUNT; i++) {
-    if (random(100) < 9) scratch[i] = (uint8_t)random(140, 256);
-    else                 scratch[i] = scale8(scratch[i], 230);
-    // The floor is the whole trick. Gamma 2.2 against a 45/255 brightness cap
-    // crushes anything below about 80 to zero at the LED, so a glyph field
-    // authored at 45..130 looks busy in the framebuffer and is invisible on the
-    // badge. 70 is roughly the lowest value that still arrives, and holding
-    // every wall LED at least there means none of them ever read as dead.
-    uint8_t g = (uint8_t)(70 + scale8(scratch[i], 80));
-    fbAdd(i, 0, g, scale8(g, 20));
+  if (gFrame == 0) {
+    fbClear();
+    memset(scratch, 0, sizeof(scratch));
+    for (uint8_t d = 0; d < DROPS; d++) dropLive[d] = false;
   }
+
+  for (uint8_t i = 0; i < RING_COUNT; i++)             // trail and glyphs both fade
+    scratch[i] = scale8(scratch[i], TRAIL_DECAY);
+
+  for (uint8_t i = 0; i < RING_COUNT; i++)             // the field between drops
+    if (random(100) < 5) {
+      uint8_t g = (uint8_t)random(60, 140);
+      if (g > scratch[i]) scratch[i] = g;
+    }
 
   for (uint8_t d = 0; d < DROPS; d++) {
     if (!dropLive[d]) {
-      if (random(100) < 32) {
-        int16_t x  = (int16_t)random(-99, 100);
-        dropX[d]   = x;
-        // Start at the board's own ceiling for that column: the slanted sides
-        // put the top of the triangle at 100 - |x|.
-        dropY[d]   = (int16_t)((100 - (x < 0 ? -x : x)) * 16 + 48);
-        dropSpd[d] = (uint8_t)random(13, 30);
+      if (random(100) < 25) {
+        // Take the column from an LED that actually exists. Picking x at random
+        // drops a third of them down stripes of bare board where nothing can be
+        // struck, and weighting by LED naturally favours the busier columns.
+        uint8_t seed = (uint8_t)random(RING_COUNT);
+        dropX[d]    = pxX(seed);
+        dropY[d]    = (int16_t)((100 - (dropX[d] < 0 ? -dropX[d] : dropX[d])) * 16 + 60);
+        dropSpd[d]  = (uint8_t)random(18, 40);
         dropLive[d] = true;
       }
       continue;
     }
 
     dropY[d] = (int16_t)(dropY[d] - (int16_t)dropSpd[d]);
-    if (dropY[d] < -DROP_TAIL) { dropLive[d] = false; continue; }
+    if (dropY[d] < -DROP_STRIKE) { dropLive[d] = false; continue; }
 
+    for (uint8_t i = 0; i < RING_COUNT; i++) {         // strike what it falls past
+      int16_t dx = (int16_t)pxX(i) - dropX[d];
+      if (dx < 0) dx = (int16_t)(-dx);
+      if (dx > DROP_COL) continue;
+      int16_t dy = (int16_t)((int16_t)pxY(i) * 16 - dropY[d]);
+      if (dy < 0) dy = (int16_t)(-dy);
+      if (dy <= DROP_STRIKE) scratch[i] = 255;
+    }
+  }
+
+  for (uint8_t i = 0; i < RING_COUNT; i++)             // lay the ink down
+    fbTint(i, inkR, inkG, inkB,
+           (uint8_t)(GLYPH_FLOOR + scale8(scratch[i], 255 - GLYPH_FLOOR)));
+
+  for (uint8_t d = 0; d < DROPS; d++) {                // heads run pale ahead of the trail
+    if (!dropLive[d]) continue;
     for (uint8_t i = 0; i < RING_COUNT; i++) {
       int16_t dx = (int16_t)pxX(i) - dropX[d];
       if (dx < 0) dx = (int16_t)(-dx);
       if (dx > DROP_COL) continue;
-
-      int16_t dy = (int16_t)((int16_t)pxY(i) * 16 - dropY[d]);   // >0 = above the head
-      uint8_t v;
-      if (dy < -DROP_HEAD)      continue;                        // not reached yet
-      else if (dy <= DROP_HEAD) v = 255;                         // the head is on it
-      else if (dy <= DROP_TAIL) v = (uint8_t)(230 - ((int32_t)(dy - DROP_HEAD) * 215)
-                                                    / (DROP_TAIL - DROP_HEAD));
-      else                      continue;
-
-      uint8_t lat = (uint8_t)(255 - ((int32_t)dx * 255) / DROP_COL);
-      uint8_t w   = scale8(v, lat);
-      if (v == 255) fbAdd(i, scale8(w, 70), w, scale8(w, 105));  // green-white head
-      else          fbAdd(i, 0, w, scale8(w, 28));               // green trail
+      int16_t dy = (int16_t)((int16_t)pxY(i) * 16 - dropY[d]);
+      if (dy < 0) dy = (int16_t)(-dy);
+      if (dy > DROP_STRIKE) continue;
+      uint8_t w = (uint8_t)(255 - ((int32_t)dy * 255) / DROP_STRIKE);
+      fbAdd(i, scale8(w, 150), scale8(w, 60), scale8(w, 150));
     }
   }
 
-  uint8_t cursor = 32 + scale8(sin8((uint8_t)(gNow / 8)), 200);   // breathes, not blinks
-  fbSet(EYE_C, 0, cursor, scale8(cursor, 28));
-  fbSet(EYE_L, 0, scale8(cursor, 90), 0);
-  fbSet(EYE_R, 0, scale8(cursor, 90), 0);
-  fbSet(TOP_L, 0, scale8(cursor, 155), scale8(cursor, 22));
-  fbSet(TOP_R, 0, scale8(cursor, 155), scale8(cursor, 22));
+  uint8_t cursor = 32 + scale8(sin8((uint8_t)(gNow / 8)), 200);
+  fbTint(EYE_C, inkR, inkG, inkB, cursor);
+  fbTint(EYE_L, inkR, inkG, inkB, scale8(cursor, 120));
+  fbTint(EYE_R, inkR, inkG, inkB, scale8(cursor, 120));
+  fbTint(TOP_L, inkR, inkG, inkB, scale8(cursor, 200));
+  fbTint(TOP_R, inkR, inkG, inkB, scale8(cursor, 200));
 }
 
 
@@ -1236,7 +1244,7 @@ const Anim ANIMS[] = {
   { animChain,        25, "Fragment Chain"},
   { animVortex,       22, "Vortex"        },   // spirals, in polar coordinates
   { animRadar,        20, "Radar"         },
-  { animMatrix,       45, "Matrix Rain"   },   // glitch / hacker
+  { animMatrix,       30, "Matrix Rain"   },   // glitch / hacker
 };
 #define ANIM_COUNT (sizeof(ANIMS) / sizeof(ANIMS[0]))
 

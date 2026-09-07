@@ -848,68 +848,61 @@ function animRadar() {
 }
 
 /* --- glitch / hacker ------------------------------------------------------ */
-const DROPS = 20, DROP_COL = 5, DROP_HEAD = 48, DROP_TAIL = 620;
+const DROPS = 10, DROP_COL = 6, DROP_STRIKE = 56, TRAIL_DECAY = 232, GLYPH_FLOOR = 70;
 const TRAVELERS = 2;
 function animMatrix() {
-  // The badge is a wall and the drops fall through it. Constant speed through
-  // SPACE, not from LED to LED, so the gap between two lit LEDs is however long
-  // the empty board between them takes to cross. The eye is not part of the wall.
+  // The trail lives on the LEDs, not in the air: a drop strikes an LED as it
+  // passes and that LED decays afterwards. A column here holds about three LEDs
+  // with big gaps, so a geometric trail would light almost nothing.
   if (gFrame === 0) {
-    fbClear();
+    fbClear(); scratch.fill(0);
     st.dx = new Array(DROPS).fill(0); st.dy = new Array(DROPS).fill(0);
     st.spd = new Array(DROPS).fill(0); st.live = new Array(DROPS).fill(false);
   }
 
-  // A faint field of glyphs behind the rain, so the wall is never a void.
-  fbFill(0, RING, 0, 0, 0);
-  for (let i = 0; i < RING; i++) {
-    if (rnd(100) < 9) scratch[i] = rnd(140, 256);
-    else              scratch[i] = scale8(scratch[i], 230);
-    // Gamma against the brightness cap crushes anything under ~80 to zero at
-    // the LED, so the field is floored at 70 to make sure it actually arrives.
-    const g = 70 + scale8(scratch[i], 80);
-    fbAdd(i, 0, g, scale8(g, 20));
-  }
+  for (let i = 0; i < RING; i++) scratch[i] = scale8(scratch[i], TRAIL_DECAY);
+  for (let i = 0; i < RING; i++)
+    if (rnd(100) < 5) { const g = rnd(60, 140); if (g > scratch[i]) scratch[i] = g; }
 
   for (let d = 0; d < DROPS; d++) {
     if (!st.live[d]) {
-      if (rnd(100) < 32) {
-        const x = rnd(-99, 100);
-        st.dx[d] = x;
-        st.dy[d] = (100 - Math.abs(x)) * 16 + 48;      // the board's ceiling for that column
-        st.spd[d] = rnd(13, 30);
+      if (rnd(100) < 25) {
+        const seed = rnd(RING);                    // a column that actually has LEDs
+        st.dx[d] = pxX(seed);
+        st.dy[d] = (100 - Math.abs(st.dx[d])) * 16 + 60;
+        st.spd[d] = rnd(18, 40);
         st.live[d] = true;
       }
       continue;
     }
-
     st.dy[d] -= st.spd[d];
-    if (st.dy[d] < -DROP_TAIL) { st.live[d] = false; continue; }
-
+    if (st.dy[d] < -DROP_STRIKE) { st.live[d] = false; continue; }
     for (let i = 0; i < RING; i++) {
-      const dx = Math.abs(pxX(i) - st.dx[d]);
-      if (dx > DROP_COL) continue;
-
-      const dy = pxY(i) * 16 - st.dy[d];               // >0 = above the head
-      let v;
-      if (dy < -DROP_HEAD)      continue;
-      else if (dy <= DROP_HEAD) v = 255;
-      else if (dy <= DROP_TAIL) v = 230 - Math.floor(((dy - DROP_HEAD) * 215) / (DROP_TAIL - DROP_HEAD));
-      else                      continue;
-
-      const lat = 255 - Math.floor((dx * 255) / DROP_COL);
-      const w = scale8(v, lat);
-      if (v === 255) fbAdd(i, scale8(w, 70), w, scale8(w, 105));
-      else           fbAdd(i, 0, w, scale8(w, 28));
+      if (Math.abs(pxX(i) - st.dx[d]) > DROP_COL) continue;
+      if (Math.abs(pxY(i) * 16 - st.dy[d]) <= DROP_STRIKE) scratch[i] = 255;
     }
   }
 
-  const cursor = 32 + scale8(sin8(Math.floor(now / 8)), 200);   // breathes, not blinks
-  fbSet(EYE_C, 0, cursor, scale8(cursor, 28));
-  fbSet(EYE_L, 0, scale8(cursor, 90), 0);
-  fbSet(EYE_R, 0, scale8(cursor, 90), 0);
-  fbSet(TOP_L, 0, scale8(cursor, 155), scale8(cursor, 22));
-  fbSet(TOP_R, 0, scale8(cursor, 155), scale8(cursor, 22));
+  for (let i = 0; i < RING; i++)
+    fbTint(i, inkR, inkG, inkB, GLYPH_FLOOR + scale8(scratch[i], 255 - GLYPH_FLOOR));
+
+  for (let d = 0; d < DROPS; d++) {
+    if (!st.live[d]) continue;
+    for (let i = 0; i < RING; i++) {
+      if (Math.abs(pxX(i) - st.dx[d]) > DROP_COL) continue;
+      const dy = Math.abs(pxY(i) * 16 - st.dy[d]);
+      if (dy > DROP_STRIKE) continue;
+      const w = 255 - Math.floor((dy * 255) / DROP_STRIKE);
+      fbAdd(i, scale8(w, 150), scale8(w, 60), scale8(w, 150));
+    }
+  }
+
+  const cursor = 32 + scale8(sin8(Math.floor(now / 8)), 200);
+  fbTint(EYE_C, inkR, inkG, inkB, cursor);
+  fbTint(EYE_L, inkR, inkG, inkB, scale8(cursor, 120));
+  fbTint(EYE_R, inkR, inkG, inkB, scale8(cursor, 120));
+  fbTint(TOP_L, inkR, inkG, inkB, scale8(cursor, 200));
+  fbTint(TOP_R, inkR, inkG, inkB, scale8(cursor, 200));
 }
 
 function animBoot() {
@@ -988,7 +981,7 @@ const ANIMS = [
   { fn: animChain,        ms: 25, name: "Fragment Chain",fam: "Fragments" },
   { fn: animVortex,       ms: 22, name: "Vortex",        fam: "Spiral"    },
   { fn: animRadar,        ms: 20, name: "Radar",         fam: "Spiral"    },
-  { fn: animMatrix,       ms: 45, name: "Matrix Rain",   fam: "Glitch"    },
+  { fn: animMatrix,       ms: 30, name: "Matrix Rain",   fam: "Glitch"    },
 ];
 </script>
 

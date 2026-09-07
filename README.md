@@ -268,9 +268,20 @@ Matrix Rain is positional too, and the clearest case for it: the badge is a wall
 and a drop falls straight down through it at a constant speed *in space*, not
 from LED to LED. So the delay between two lit LEDs is however long the empty
 board between them takes to cross. LEDs 49 and 59 share the column at x=38 with
-fifty height-units of nothing between them — about 1.8 s at drop speed — while
-59 to 8 is twelve units and takes 450 ms. Outline and tails are both part of the
-wall; only the eye is excluded.
+fifty height-units of nothing between them, while 59 to 8 is only twelve.
+
+That gap is also why the trail lives **on the LEDs** rather than in the air. A
+column here holds about 3.3 LEDs on average with large voids between them, so
+lighting whatever happens to lie just above the head lights almost nothing and
+the drop reads as a lone point crossing bare board. Instead a drop *strikes* an
+LED as it passes and that LED decays on its own, which makes a column of three
+read as three flashes falling in sequence. The same decaying buffer carries the
+dim glyph field between drops, so trail and texture are one mechanism.
+
+Drops also take their column from a randomly chosen LED rather than a random x.
+Picking x freely drops a third of them down stripes of bare board where nothing
+can be struck; seeding from an LED guarantees a target and naturally favours the
+busier columns. Outline and tails are both part of the wall; only the eye is out.
 Fragment Chain is the one animation that genuinely wants **strand order**: it is
 drawing the data path.
 
