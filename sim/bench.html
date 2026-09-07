@@ -79,17 +79,24 @@
                    letter-spacing: 0; text-transform: none; margin-left: 8px; font-size: 11px; }
 
   /* ---- key + transport under the stage ---- */
-  .understage { display: grid; grid-template-columns: minmax(0,1fr) auto; gap: 18px;
-                align-items: center; }
-  @media (max-width: 620px) { .understage { grid-template-columns: minmax(0,1fr); } }
+  /* Flex, not a two-column grid. An `auto` grid track holds its intrinsic
+     width, so the transport kept its full size and squeezed the key down to one
+     word per line at any width above the breakpoint. Wrapping lets the whole
+     transport drop to its own row instead, at whatever width it stops fitting. */
+  .understage { display: flex; flex-wrap: wrap; gap: 18px;
+                align-items: center; justify-content: space-between; }
 
   .key { display: flex; flex-wrap: wrap; gap: 6px 18px; font-family: var(--f-mono);
-         font-size: 11px; color: var(--silk-dim); }
+         font-size: 11px; color: var(--silk-dim);
+         flex: 1 1 260px; min-width: 0; }
   .key i { font-style: normal; display: inline-flex; align-items: center; gap: 6px; }
   .key i::before { content: ""; width: 7px; height: 7px; border-radius: 50%;
                    background: var(--k, var(--silk-faint)); box-shadow: 0 0 7px var(--k, transparent); }
 
-  .transport { display: flex; gap: 8px; align-items: center; }
+  .transport { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+  /* A custom element defaults to display:inline, which sits its slotted button
+     on the text baseline rather than with its siblings. */
+  esp-web-install-button { display: inline-flex; align-items: center; }
   .ctl.live { color: #16110a; background: #3ac87a; border-color: #3ac87a; }
   .link { display: inline-flex; align-items: center; gap: 7px; font-family: var(--f-mono);
           font-size: 11px; letter-spacing: .09em; text-transform: uppercase;
@@ -106,7 +113,8 @@
   .ctl { background: var(--panel); border: 1px solid var(--trace);
          color: var(--silk-dim); font-family: var(--f-display); font-weight: 600;
          font-size: 12px; letter-spacing: .08em; text-transform: uppercase;
-         padding: 8px 14px; border-radius: 2px; transition: color .12s, border-color .12s; }
+         padding: 8px 14px; border-radius: 2px; white-space: nowrap;
+         transition: color .12s, border-color .12s; }
   .ctl:hover { color: var(--silk); border-color: var(--trace-lit); }
   .ctl.pressed { color: var(--gold); border-color: var(--gold-soft); }
 
