@@ -60,6 +60,24 @@
 
 #include <Adafruit_NeoPixel.h>
 #include <esp_system.h>
+#include <Preferences.h>
+
+// Wireless control. Set WIFI_ENABLED to 0 to leave the radio off entirely --
+// a soft AP costs well over a hundred milliamps, which on a battery badge is
+// more than every LED at the default brightness put together. Overridable from
+// the command line (-DWIFI_ENABLED=0) so the off-target test harness can build
+// the animation code without the whole network stack.
+#ifndef WIFI_ENABLED
+  #define WIFI_ENABLED 1
+#endif
+#if WIFI_ENABLED
+  #include <WiFi.h>
+  #include <WebServer.h>
+  #include <DNSServer.h>
+  #include "webpage.h"
+  #define AP_SSID "Fragments"
+  #define AP_PASS "allseeing"    // >= 8 chars for WPA2; "" for an open network
+#endif
 
 // ---------------------------------------------------------------------------
 // Configuration -- the knobs worth touching
@@ -1209,6 +1227,50 @@ const Anim ANIMS[] = {
 #define ANIM_COUNT (sizeof(ANIMS) / sizeof(ANIMS[0]))
 
 /* ===========================================================================
+ *  SETTINGS
+ *
+ *  Animation, brightness and colour survive a power cycle, kept in NVS.
+ *
+ *  Writes are held back until things have been quiet for a moment. NVS lives in
+ *  flash and flash wears out, and a brightness ramp changes the value twenty-five
+ *  times a second -- committing each step would put tens of thousands of writes
+ *  through it in an evening of fiddling. Waiting for the quiet turns a whole ramp
+ *  into one write.
+ * ===========================================================================
+ */
+#define SETTINGS_SAVE_MS 2500
+
+Preferences prefs;
+bool     gDirty   = false;
+uint32_t gDirtyAt = 0;
+
+void settingsLoad() {
+  prefs.begin("fragments", true);                    // read-only
+  gMode   = prefs.getUChar ("mode",   START_MODE);
+  gBright = prefs.getUChar ("bright", START_BRIGHT);
+  gHue    = prefs.getUShort("hue",    DEFAULT_HUE);
+  prefs.end();
+
+  // Anything out of range means a corrupt or stale record -- an animation count
+  // that shrank, say. Fall back rather than index off the end of the table.
+  if (gMode >= ANIM_COUNT)                          gMode   = START_MODE;
+  if (gBright < BRIGHT_MIN || gBright > BRIGHT_MAX) gBright = START_BRIGHT;
+}
+
+inline void settingsTouch() { gDirty = true; gDirtyAt = gNow; }
+
+void settingsService() {
+  if (!gDirty || (gNow - gDirtyAt) < SETTINGS_SAVE_MS) return;
+  prefs.begin("fragments", false);
+  prefs.putUChar ("mode",   gMode);
+  prefs.putUChar ("bright", gBright);
+  prefs.putUShort("hue",    gHue);
+  prefs.end();
+  gDirty = false;
+  Serial.printf("saved: animation %u, brightness %u, hue %u\n", gMode, gBright, gHue);
+}
+
+/* ===========================================================================
  *  ON-BADGE READOUT
  *
  *  Briefly replaces the animation after a button action so you can see what
@@ -1255,6 +1317,7 @@ void setMode(uint8_t m) {
   memset(scratch, 0, sizeof(scratch));
   gFeedback   = FB_MODE;
   gFeedbackTo = gNow + 400;
+  settingsTouch();
   Serial.printf("[%u/%u] %s\n", gMode, (unsigned)ANIM_COUNT - 1, ANIMS[gMode].name);
 }
 
@@ -1268,6 +1331,7 @@ void setMode(uint8_t m) {
 void rampHue() {
   gHue = (uint16_t)(gHue + HUE_STEP);
   updateInk();
+  settingsTouch();
   gFeedback   = FB_LEVEL;                          // hold the badge on the new colour
   gFeedbackTo = gNow + 400;
 }
@@ -1280,6 +1344,7 @@ void rampBrightness() {
   if (v >= BRIGHT_MAX)      { v = BRIGHT_MAX; gBrightDir = -1; }   // turn round
   else if (v <= BRIGHT_MIN) { v = BRIGHT_MIN; gBrightDir =  1; }
   gBright = (uint8_t)v;
+  settingsTouch();
 
   // Each step pushes the window out, so the fill holds for the whole hold and
   // lingers briefly after you let go.
@@ -1349,6 +1414,85 @@ void serviceButton() {
   }
 }
 
+#if WIFI_ENABLED
+/* ===========================================================================
+ *  WIRELESS CONTROL
+ *
+ *  The badge runs a soft AP and serves the test bench itself, so the page you
+ *  get is the same one in sim/, generated into webpage.h by
+ *  tools/make_webpage.py. That keeps the animation code to one source of truth:
+ *  the preview on your phone is running the identical integer maths the badge
+ *  is, rather than a second implementation drifting out of step.
+ *
+ *  The page pushes changes as they happen and polls for state, so pressing the
+ *  physical button shows up in the browser and vice versa.
+ * ===========================================================================
+ */
+WebServer server(80);
+DNSServer  dns;
+
+void handleRoot() {
+  server.sendHeader("Content-Encoding", "gzip");
+  server.sendHeader("Cache-Control", "max-age=86400");
+  server.send_P(200, "text/html", (PGM_P)WEBPAGE_GZ, WEBPAGE_GZ_LEN);
+}
+
+void handleState() {
+  char buf[112];
+  snprintf(buf, sizeof buf,
+           "{\"mode\":%u,\"bright\":%u,\"hue\":%u,\"count\":%u}",
+           gMode, gBright, gHue, (unsigned)ANIM_COUNT);
+  server.send(200, "application/json", buf);
+}
+
+void handleSet() {
+  // Everything is range-checked here rather than trusted: this is reachable by
+  // anyone who can join the AP, and an out-of-range mode would index off the
+  // end of the animation table.
+  if (server.hasArg("mode")) {
+    long v = server.arg("mode").toInt();
+    if (v >= 0 && v < (long)ANIM_COUNT && v != gMode) setMode((uint8_t)v);
+  }
+  if (server.hasArg("bright")) {
+    long v = server.arg("bright").toInt();
+    if (v >= BRIGHT_MIN && v <= BRIGHT_MAX) { gBright = (uint8_t)v; settingsTouch(); }
+  }
+  if (server.hasArg("hue")) {
+    long v = server.arg("hue").toInt();
+    if (v >= 0 && v <= 65535) { gHue = (uint16_t)v; updateInk(); settingsTouch(); }
+  }
+  server.send(200, "text/plain", "ok");
+}
+
+void webBegin() {
+  WiFi.mode(WIFI_AP);
+  // Check it. softAP() reports whether the radio actually came up, and printing
+  // an address without asking is how you end up hunting a network that was never
+  // broadcast.
+  if (!WiFi.softAP(AP_SSID, AP_PASS)) {
+    Serial.println("wifi: softAP() refused to start");
+    return;
+  }
+  IPAddress ip = WiFi.softAPIP();
+  Serial.printf("wifi: mode=%d channel=%u mac=%s\n",
+                (int)WiFi.getMode(), WiFi.channel(), WiFi.softAPmacAddress().c_str());
+
+  dns.start(53, "*", ip);                          // captive portal
+  server.on("/", handleRoot);
+  server.on("/state", handleState);
+  server.on("/set", HTTP_GET,  handleSet);
+  server.on("/set", HTTP_POST, handleSet);
+  server.onNotFound([]() {                         // anything else lands on the page
+    server.sendHeader("Location", "/", true);
+    server.send(302, "text/plain", "");
+  });
+  server.begin();
+
+  Serial.printf("wifi: \"%s\" up at http://%s  (%u bytes of page)\n",
+                AP_SSID, ip.toString().c_str(), (unsigned)WEBPAGE_GZ_LEN);
+}
+#endif
+
 /* ===========================================================================
  *  SETUP / LOOP
  * ===========================================================================
@@ -1374,19 +1518,32 @@ void setup() {
 
   gNow       = millis();
   gLastAuto  = gNow;
-  setMode(START_MODE);
+
+  settingsLoad();                                  // pick up where we left off
+  updateInk();
+  setMode(gMode);
+  gDirty = false;                                  // loading is not a change
 
   Serial.printf("\nFragments: %u animations, brightness %u..%u.\n"
                 "  short press        = next animation\n"
                 "  hold               = ramp brightness, turns round at each end\n"
                 "  press, then hold   = ramp colour\n",
                 (unsigned)ANIM_COUNT, BRIGHT_MIN, BRIGHT_MAX);
+
+#if WIFI_ENABLED
+  webBegin();
+#endif
 }
 
 void loop() {
   gNow = millis();
 
   serviceButton();
+  settingsService();
+#if WIFI_ENABLED
+  dns.processNextRequest();
+  server.handleClient();
+#endif
 
 #if AUTO_CYCLE_MS > 0
   if (gNow - gLastAuto >= AUTO_CYCLE_MS) { gLastAuto = gNow; setMode((uint8_t)(gMode + 1)); }

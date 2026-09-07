@@ -170,6 +170,47 @@ in `ConferenceCode_v1`, unchanged, if you want them back.
 Set `AUTO_CYCLE_MS` to a number of milliseconds to have the badge advance on its
 own.
 
+## Settings
+
+Animation, brightness and colour survive a power cycle, kept in NVS.
+
+Writes are held back until things have been quiet for `SETTINGS_SAVE_MS`. NVS
+lives in flash and flash wears out; a brightness ramp changes the value
+twenty-five times a second, so committing each step would put tens of thousands
+of writes through it in an evening of fiddling. Waiting for the quiet turns a
+whole ramp into a single write. A record that points past the end of the
+animation table — after the list shrinks, say — is discarded rather than used.
+
+## Wireless control
+
+The badge runs a soft access point and serves the test bench itself:
+
+| | |
+|---|---|
+| Network | `Fragments` |
+| Password | `allseeing` |
+| Address | `http://192.168.4.1` |
+
+Joining should open the page by itself; there is a captive-portal redirect for
+clients that ask. The page pushes changes as you make them and polls for state,
+so pressing the physical button shows up in the browser and the other way round.
+
+The page is not a second implementation — `tools/make_webpage.py` takes
+`sim/bench.html`, hides the parts that only make sense on a desk, appends the
+layer that talks to the badge, gzips it and writes `Fragments_NNA/webpage.h`.
+So the preview in your hand runs the identical integer maths the badge does.
+Re-run it after editing the bench:
+
+```bash
+python3 tools/make_webpage.py
+```
+
+**The radio is not free.** A soft AP costs well over a hundred milliamps —
+more than every LED at the default brightness put together. `WIFI_ENABLED 0`
+compiles it out entirely, and it is overridable from the command line, which is
+also how the off-target test harness builds the animation code without pulling
+in the network stack.
+
 ## Test bench
 
 Open `sim/bench.html` in any browser — no build step, no server. It runs the
