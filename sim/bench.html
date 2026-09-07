@@ -917,6 +917,8 @@ function animMatrix() {
 }
 
 function animBoot() {
+  // Outline only -- the twelve tail LEDs stay dark for the whole sequence, so
+  // the badge wakes up drawing its own silhouette rather than filling in solid.
   const t = Math.floor(now) % 5600;
   fbClear();
 
@@ -926,17 +928,9 @@ function animBoot() {
       const age = lit - r, v = age > 8 ? 45 : 255 - age * 26;
       fbTint(PERIM[r], inkR, inkG, inkB, v);
     }
-    for (let f = 0; f < FRAG_COUNT; f++) {           // tails fill in behind it
-      const anchor = f * 16 + 12;
-      for (let k = 0; k < 4; k++) {
-        if (lit <= anchor + k) continue;
-        const age = lit - anchor - k, v = age > 8 ? 45 : 255 - age * 26;
-        fbTint(f * FRAG_LEN + 16 + k, inkR, inkG, inkB, v);
-      }
-    }
 
   } else if (t < 2600) {                             // corners lock in, one by one
-    for (let i = 0; i < RING; i++) fbTint(i, inkR, inkG, inkB, 70);
+    for (let r = 0; r < PERIM_COUNT; r++) fbTint(PERIM[r], inkR, inkG, inkB, 70);
     const s = t - 1600, corner = [CORNER_BR, CORNER_BL, CORNER_TOP];
     for (let c = 0; c < 3; c++) {
       if (s > c * 280) {
@@ -946,7 +940,7 @@ function animBoot() {
     }
 
   } else if (t < 3800) {                             // the eye opens
-    for (let i = 0; i < RING; i++) fbTint(i, inkR, inkG, inkB, 70);
+    for (let r = 0; r < PERIM_COUNT; r++) fbTint(PERIM[r], inkR, inkG, inkB, 70);
     fbTint(CORNER_BR,  inkR, inkG, inkB, 200);
     fbTint(CORNER_BL,  inkR, inkG, inkB, 200);
     fbTint(CORNER_TOP, inkR, inkG, inkB, 200);
@@ -962,12 +956,12 @@ function animBoot() {
 
   } else if (t < 4700) {                             // three confirmation flashes
     const on = Math.floor((t - 3800) / 150) % 2 === 0, v = on ? 220 : 20;
-    for (let i = 0; i < RING; i++) fbTint(i, inkR, inkG, inkB, v);
+    for (let r = 0; r < PERIM_COUNT; r++) fbTint(PERIM[r], inkR, inkG, inkB, v);
     for (let i = GRB_FIRST; i < N; i++) fbTint(i, inkR, inkG, inkB, v);
 
   } else {                                           // ready, holding
     const b = 60 + scale8(sin8(Math.floor((t - 4700) / 3)), 40);
-    for (let i = 0; i < RING; i++) fbTint(i, inkR, inkG, inkB, b);
+    for (let r = 0; r < PERIM_COUNT; r++) fbTint(PERIM[r], inkR, inkG, inkB, b);
     fbTint(CORNER_BR,  inkR, inkG, inkB, qadd8(b, 50));
     fbTint(CORNER_BL,  inkR, inkG, inkB, qadd8(b, 50));
     fbTint(CORNER_TOP, inkR, inkG, inkB, qadd8(b, 50));

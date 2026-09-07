@@ -1161,6 +1161,10 @@ void animMatrix() {
 // Power-on self test, on a loop: trace the outline, lock the corners, open the
 // eye, then three confirmation flashes and a short hold.
 void animBoot() {
+  // Outline only. The twelve tail LEDs stay dark for the whole sequence, so the
+  // badge wakes up drawing its own silhouette rather than filling in solid --
+  // every loop here walks PERIM rather than the full strand, and floorEye()
+  // does not reach the tails, so nothing lifts them off zero.
   const uint16_t CYCLE = 5600;
   uint16_t t = (uint16_t)(gNow % CYCLE);
 
@@ -1173,19 +1177,9 @@ void animBoot() {
       uint8_t v   = age > 8 ? 45 : (uint8_t)(255 - age * 26);
       fbTint(PERIM[r], inkR, inkG, inkB, v);
     }
-    // Each board's tail fills in behind the trace as it passes the attachment.
-    for (uint8_t f = 0; f < FRAG_COUNT; f++) {
-      uint8_t anchor = (uint8_t)(f * 16 + 12);
-      for (uint8_t k = 0; k < 4; k++) {
-        if (lit <= anchor + k) continue;
-        uint8_t age = (uint8_t)(lit - anchor - k);
-        uint8_t v   = age > 8 ? 45 : (uint8_t)(255 - age * 26);
-        fbTint((uint8_t)(f * FRAG_LEN + 16 + k), inkR, inkG, inkB, v);
-      }
-    }
 
   } else if (t < 2600) {                             // corners lock in, one by one
-    for (uint8_t i = 0; i < RING_COUNT; i++) fbTint(i, inkR, inkG, inkB, 70);
+    for (uint8_t r = 0; r < PERIM_COUNT; r++) fbTint(PERIM[r], inkR, inkG, inkB, 70);
     uint16_t s = t - 1600;
     const uint8_t corner[3] = { CORNER_BR, CORNER_BL, CORNER_TOP };
     for (uint8_t c = 0; c < 3; c++) {
@@ -1197,7 +1191,7 @@ void animBoot() {
     }
 
   } else if (t < 3800) {                             // the eye opens
-    for (uint8_t i = 0; i < RING_COUNT; i++) fbTint(i, inkR, inkG, inkB, 70);
+    for (uint8_t r = 0; r < PERIM_COUNT; r++) fbTint(PERIM[r], inkR, inkG, inkB, 70);
     fbTint(CORNER_BR,  inkR, inkG, inkB, 200);
     fbTint(CORNER_BL,  inkR, inkG, inkB, 200);
     fbTint(CORNER_TOP, inkR, inkG, inkB, 200);
@@ -1216,18 +1210,16 @@ void animBoot() {
   } else if (t < 4700) {                             // three confirmation flashes
     bool on = ((t - 3800) / 150) % 2 == 0;
     uint8_t v = on ? 220 : 20;
-    for (uint8_t i = 0; i < RING_COUNT; i++) fbTint(i, inkR, inkG, inkB, v);
-    for (uint8_t i = GRB_FIRST; i < PIXEL_COUNT; i++)
-      fbTint(i, inkR, inkG, inkB, v);
+    for (uint8_t r = 0; r < PERIM_COUNT; r++) fbTint(PERIM[r], inkR, inkG, inkB, v);
+    for (uint8_t i = GRB_FIRST; i < PIXEL_COUNT; i++) fbTint(i, inkR, inkG, inkB, v);
 
   } else {                                           // ready, holding
     uint8_t b = 60 + scale8(sin8((uint8_t)((t - 4700) / 3)), 40);
-    for (uint8_t i = 0; i < RING_COUNT; i++) fbTint(i, inkR, inkG, inkB, b);
+    for (uint8_t r = 0; r < PERIM_COUNT; r++) fbTint(PERIM[r], inkR, inkG, inkB, b);
     fbTint(CORNER_BR,  inkR, inkG, inkB, qadd8(b, 50));
     fbTint(CORNER_BL,  inkR, inkG, inkB, qadd8(b, 50));
     fbTint(CORNER_TOP, inkR, inkG, inkB, qadd8(b, 50));
-    for (uint8_t i = GRB_FIRST; i < PIXEL_COUNT; i++)
-      fbTint(i, inkR, inkG, inkB, 200);
+    for (uint8_t i = GRB_FIRST; i < PIXEL_COUNT; i++) fbTint(i, inkR, inkG, inkB, 200);
   }
 }
 

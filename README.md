@@ -136,7 +136,7 @@ at the top, so nothing else needs touching.
 
 | # | Name | Family |
 |---|---|---|
-| 0 | Boot Sequence | What the badge wakes up to |
+| 0 | Boot Sequence | What the badge wakes up to — outline only, legs dark |
 | 1 | Breathe | Ambient — the original `breathingBadge()`, finished |
 | 2 | Drift | Ambient |
 | 3 | Plasma | Ambient |
