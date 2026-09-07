@@ -1,0 +1,1343 @@
+<title>Fragments Test Bench</title>
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@500;600;700&family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500&display=swap">
+<style>
+  /* A deliberately single-theme page: this is a dark chamber for watching LEDs
+     emit light. Rendering emission on a white ground would defeat the point,
+     so every color is painted explicitly and nothing is inherited from the host. */
+  :root {
+    --pcb:        #0a100e;   /* solder mask, near-black with a green bias */
+    --pcb-deep:   #060a09;
+    --panel:      #111a16;
+    --panel-hi:   #172420;
+    --trace:      #1e2c26;   /* hairlines, like copper under mask */
+    --trace-lit:  #2c4239;
+    --silk:       #d7ded3;   /* silkscreen white */
+    --silk-dim:   #78877c;   /* green-biased grey, chosen not inherited */
+    --silk-faint: #4a564e;
+    --gold:       #c9a227;   /* ENIG pad gold - the one accent */
+    --gold-soft:  #8a7020;
+    --warn:       #d4763a;
+
+    --f-display: "Chakra Petch", "DejaVu Sans Condensed", sans-serif;
+    --f-body:    "IBM Plex Sans", system-ui, sans-serif;
+    --f-mono:    "IBM Plex Mono", ui-monospace, "DejaVu Sans Mono", monospace;
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    background: var(--pcb);
+    color: var(--silk);
+    font-family: var(--f-body);
+    font-size: 14px;
+    line-height: 1.55;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  .bench { max-width: 1240px; margin: 0 auto; padding: 28px 24px 56px; }
+
+  /* ---- header ---- */
+  header { display: flex; align-items: flex-end; justify-content: space-between;
+           gap: 24px; flex-wrap: wrap; padding-bottom: 16px;
+           border-bottom: 1px solid var(--trace); }
+  .brand h1 { font-family: var(--f-display); font-weight: 700; font-size: 26px;
+              letter-spacing: .01em; margin: 0; text-wrap: balance; }
+  .brand p  { margin: 4px 0 0; color: var(--silk-dim); max-width: 62ch; font-size: 13px; }
+  .hw { display: flex; gap: 22px; font-family: var(--f-mono); font-size: 11px;
+        color: var(--silk-dim); }
+  .hw div { display: flex; flex-direction: column; gap: 1px; }
+  .hw b { color: var(--silk); font-weight: 500; font-size: 13px;
+          font-variant-numeric: tabular-nums; }
+  .hw span { text-transform: uppercase; letter-spacing: .11em; color: var(--silk-faint); }
+
+  /* ---- layout ---- */
+  main { display: grid; grid-template-columns: minmax(0,1fr) 316px; gap: 26px;
+         align-items: start; margin-top: 24px; }
+  @media (max-width: 900px) { main { grid-template-columns: minmax(0,1fr); } }
+
+  /* ---- stage ---- */
+  .stage { display: flex; flex-direction: column; gap: 14px; min-width: 0; }
+  .chamber { position: relative; background:
+      radial-gradient(120% 90% at 50% 34%, #101a16 0%, var(--pcb-deep) 72%);
+      border: 1px solid var(--trace); border-radius: 3px; overflow: hidden; }
+  canvas { display: block; width: 100%; height: auto; }
+
+  .probe { position: absolute; left: 12px; bottom: 11px; font-family: var(--f-mono);
+           font-size: 11px; color: var(--silk-dim); background: rgba(6,10,9,.82);
+           border: 1px solid var(--trace); padding: 4px 9px; border-radius: 2px;
+           pointer-events: none; font-variant-numeric: tabular-nums;
+           opacity: 0; transition: opacity .12s; }
+  .probe.on { opacity: 1; }
+  .probe b { color: var(--gold); font-weight: 600; }
+
+  .nowplaying { position: absolute; left: 12px; top: 11px; font-family: var(--f-display);
+                font-size: 13px; letter-spacing: .07em; text-transform: uppercase;
+                color: var(--silk); text-shadow: 0 0 14px rgba(0,0,0,.9); }
+  .nowplaying em { font-style: normal; color: var(--silk-faint); font-family: var(--f-mono);
+                   letter-spacing: 0; text-transform: none; margin-left: 8px; font-size: 11px; }
+
+  /* ---- key + transport under the stage ---- */
+  .understage { display: grid; grid-template-columns: minmax(0,1fr) auto; gap: 18px;
+                align-items: center; }
+  @media (max-width: 620px) { .understage { grid-template-columns: minmax(0,1fr); } }
+
+  .key { display: flex; flex-wrap: wrap; gap: 6px 18px; font-family: var(--f-mono);
+         font-size: 11px; color: var(--silk-dim); }
+  .key i { font-style: normal; display: inline-flex; align-items: center; gap: 6px; }
+  .key i::before { content: ""; width: 7px; height: 7px; border-radius: 50%;
+                   background: var(--k, var(--silk-faint)); box-shadow: 0 0 7px var(--k, transparent); }
+
+  .transport { display: flex; gap: 8px; align-items: center; }
+
+  /* ---- controls ---- */
+  button { font: inherit; color: inherit; background: none; border: none; cursor: pointer; }
+  :focus-visible { outline: 2px solid var(--gold); outline-offset: 2px; }
+
+  .ctl { background: var(--panel); border: 1px solid var(--trace);
+         color: var(--silk-dim); font-family: var(--f-display); font-weight: 600;
+         font-size: 12px; letter-spacing: .08em; text-transform: uppercase;
+         padding: 8px 14px; border-radius: 2px; transition: color .12s, border-color .12s; }
+  .ctl:hover { color: var(--silk); border-color: var(--trace-lit); }
+  .ctl.pressed { color: var(--gold); border-color: var(--gold-soft); }
+
+  .rail { display: flex; flex-direction: column; gap: 18px; min-width: 0; }
+  .block { background: var(--panel); border: 1px solid var(--trace); border-radius: 3px; }
+  .block > h2 { font-family: var(--f-display); font-size: 11px; font-weight: 600;
+                letter-spacing: .14em; text-transform: uppercase; color: var(--silk-faint);
+                margin: 0; padding: 11px 14px 9px; border-bottom: 1px solid var(--trace); }
+  .block > .body { padding: 12px 14px 14px; display: flex; flex-direction: column; gap: 12px; }
+
+  /* animation list - grouped the way the firmware table is grouped */
+  .fam { padding: 11px 0 3px 14px; font-family: var(--f-mono); font-size: 10px;
+         letter-spacing: .13em; text-transform: uppercase; color: var(--silk-faint); }
+  .fam:first-child { padding-top: 4px; }
+  .anims { padding-bottom: 8px; max-height: 430px; overflow-y: auto;
+           scrollbar-width: thin; scrollbar-color: var(--trace-lit) transparent; }
+  .anims::-webkit-scrollbar { width: 8px; }
+  .anims::-webkit-scrollbar-track { background: transparent; }
+  .anims::-webkit-scrollbar-thumb { background: var(--trace-lit); border-radius: 4px; }
+  .anim { display: grid; grid-template-columns: 22px minmax(0,1fr) auto; gap: 10px;
+          align-items: baseline; width: 100%; text-align: left; padding: 5px 14px;
+          font-family: var(--f-display); font-size: 13.5px; font-weight: 500;
+          color: var(--silk-dim); border-left: 2px solid transparent; }
+  .anim:hover { color: var(--silk); background: var(--panel-hi); }
+  .anim[aria-current="true"] { color: var(--silk); border-left-color: var(--gold);
+                               background: var(--panel-hi); }
+  .anim .n { font-family: var(--f-mono); font-size: 11px; color: var(--silk-faint);
+             font-variant-numeric: tabular-nums; }
+  .anim[aria-current="true"] .n { color: var(--gold); }
+  .anim .ms { font-family: var(--f-mono); font-size: 10.5px; color: var(--silk-faint);
+              font-variant-numeric: tabular-nums; }
+
+  /* brightness stepper - five segments, matching BRIGHT_LEVELS in the firmware */
+  .steps { display: grid; grid-template-columns: repeat(5, 1fr); gap: 4px; }
+  .step { height: 30px; border: 1px solid var(--trace); border-radius: 2px;
+          background: var(--pcb-deep); font-family: var(--f-mono); font-size: 10px;
+          color: var(--silk-faint); display: grid; place-items: center;
+          font-variant-numeric: tabular-nums; transition: all .12s; }
+  .step:hover { border-color: var(--trace-lit); color: var(--silk-dim); }
+  .step[aria-pressed="true"] { background: var(--gold); border-color: var(--gold);
+                               color: #16110a; font-weight: 600; }
+
+  label.row { display: flex; align-items: center; justify-content: space-between; gap: 12px;
+              font-family: var(--f-mono); font-size: 11px; color: var(--silk-dim);
+              text-transform: uppercase; letter-spacing: .09em; }
+  label.row output { color: var(--silk); font-variant-numeric: tabular-nums;
+                     letter-spacing: 0; }
+  input[type=range] { -webkit-appearance: none; appearance: none; width: 100%;
+                      height: 3px; background: var(--trace-lit); border-radius: 2px; }
+  input[type=range]::-webkit-slider-thumb { -webkit-appearance: none; width: 13px; height: 13px;
+      border-radius: 50%; background: var(--silk); border: none; cursor: pointer; }
+  input[type=range]::-moz-range-thumb { width: 13px; height: 13px; border: none;
+      border-radius: 50%; background: var(--silk); cursor: pointer; }
+
+  /* telemetry */
+  .tele { display: grid; grid-template-columns: 1fr 1fr; gap: 10px 12px; }
+  .tele div { display: flex; flex-direction: column; gap: 1px; }
+  .tele span { font-family: var(--f-mono); font-size: 9.5px; letter-spacing: .12em;
+               text-transform: uppercase; color: var(--silk-faint); }
+  .tele b { font-family: var(--f-mono); font-size: 15px; font-weight: 500; color: var(--silk);
+            font-variant-numeric: tabular-nums; }
+  .tele b.hot { color: var(--warn); }
+
+  .draw { height: 4px; background: var(--pcb-deep); border-radius: 2px; overflow: hidden;
+          border: 1px solid var(--trace); }
+  .draw i { display: block; height: 100%; background: var(--gold); width: 0%;
+            transition: width .1s linear; }
+  .draw.hot i { background: var(--warn); }
+
+  .note { font-size: 12px; color: var(--silk-dim); line-height: 1.6; }
+  .note code { font-family: var(--f-mono); font-size: 11.5px; color: var(--silk);
+               background: var(--pcb-deep); padding: 1px 5px; border-radius: 2px; }
+  .note a { color: var(--gold); }
+
+  .toggle { display: flex; align-items: center; gap: 8px; font-family: var(--f-mono);
+            font-size: 11px; color: var(--silk-dim); text-transform: uppercase;
+            letter-spacing: .09em; cursor: pointer; }
+  .toggle input { accent-color: var(--gold); width: 13px; height: 13px; }
+
+  footer { margin-top: 30px; padding-top: 16px; border-top: 1px solid var(--trace);
+           font-family: var(--f-mono); font-size: 11px; color: var(--silk-faint);
+           display: flex; gap: 20px; flex-wrap: wrap; }
+
+  @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+</style>
+
+<div class="bench">
+  <header>
+    <div class="brand">
+      <h1>Fragments Test Bench</h1>
+      <p>Every animation in <code style="font-family:var(--f-mono);font-size:12px">Fragments_NNA.ino</code>,
+         running the same integer math the ESP32 runs — same sine table, same
+         <span style="font-family:var(--f-mono)">ColorHSV</span>, same gamma curve, same current limiter.
+         Tune it here, then flash it.</p>
+    </div>
+    <div class="hw">
+      <div><span>Boards</span><b>3 &times; 20</b></div>
+      <div><span>Strand</span><b>65 px</b></div>
+      <div><span>Perimeter</span><b>0&ndash;59</b></div>
+      <div><span>Eye + top</span><b>60&ndash;64</b></div>
+      <div><span>Corners</span><b>3 / 23 / 43</b></div>
+    </div>
+  </header>
+
+  <main>
+    <section class="stage">
+      <div class="chamber">
+        <canvas id="cv" width="1100" height="1000" aria-label="Simulated badge"></canvas>
+        <div class="nowplaying"><span id="npName">Breathe</span><em id="npFam">ambient</em></div>
+        <div class="probe" id="probe"></div>
+      </div>
+
+      <div class="understage">
+        <div class="key">
+          <i style="--k:#4ad2b0">Perimeter &middot; RGB order</i>
+          <i style="--k:#c9a227">Eye 60&ndash;62 &middot; GRB order</i>
+          <i style="--k:#8a7fd4">Eye wash 63&ndash;64 &middot; aimed down at the white</i>
+          <i style="--k:#3d5a4c">Board seam &middot; 3 LEDs before each corner</i>
+        </div>
+        <div class="transport">
+          <button class="ctl" id="playBtn">Pause</button>
+          <button class="ctl" id="badgeBtn" title="Click for next animation, press and hold for brightness">Badge button</button>
+        </div>
+      </div>
+    </section>
+
+    <aside class="rail">
+      <div class="block">
+        <h2>Animation</h2>
+        <div class="anims" id="animList"></div>
+      </div>
+
+      <div class="block">
+        <h2>Output</h2>
+        <div class="body">
+          <div>
+            <label class="row" style="margin-bottom:6px">Brightness <output id="brOut">45 / 255</output></label>
+            <div class="steps" id="steps"></div>
+          </div>
+          <div>
+            <label class="row" for="spd">Speed <output id="spdOut">1.00&times;</output></label>
+            <input type="range" id="spd" min="10" max="300" value="100" step="5">
+          </div>
+          <label class="toggle"><input type="checkbox" id="idx"> Show LED indices</label>
+          <label class="toggle"><input type="checkbox" id="paths"> Trace each board&rsquo;s 20 LEDs</label>
+        </div>
+      </div>
+
+      <div class="block">
+        <h2>Telemetry</h2>
+        <div class="body">
+          <div class="tele">
+            <div><span>LED current</span><b id="mA">0 mA</b></div>
+            <div><span>Frame rate</span><b id="fps">0 fps</b></div>
+          </div>
+          <div class="draw" id="drawBar"><i></i></div>
+          <p class="note" id="limitNote" style="margin:0;font-size:11.5px">
+            Budget <code>700 mA</code>. Estimated from channel sum at ~60&nbsp;mA per LED at full white,
+            the same arithmetic <code>pushFrame()</code> uses to clamp.
+          </p>
+        </div>
+      </div>
+
+      <div class="block">
+        <h2>Layout assumptions</h2>
+        <div class="body">
+          <p class="note" style="margin:0">
+            Three boards of 20 LEDs, chained <code>DOUT</code>&nbsp;&rarr;&nbsp;<code>DIN</code>.
+            Each carries one corner at its local position 3, so the seams land three LEDs
+            <em>before</em> each corner &mdash; between 19|20, 39|40 and 59|0 &mdash; and the
+            boards pinwheel rather than meeting at the points. Positions for the five inner
+            LEDs are measured off photographs; the perimeter is treated as three straight runs.
+          </p>
+        </div>
+      </div>
+    </aside>
+  </main>
+
+  <footer>
+    <span>DC32 &middot; Illuminati Party&reg; &ldquo;Fragments&rdquo;</span>
+    <span>19 animations &middot; 5 brightness levels</span>
+    <span>Short press: next &middot; Hold: brightness</span>
+  </footer>
+</div>
+
+<script>
+/* ---------------------------------------------------------------------------
+   A transliteration of Fragments_NNA.ino. Every helper below has the same name
+   and the same integer behaviour as its C++ counterpart, uint8/uint16 wrapping
+   included, so what this page shows is what the badge does.
+   --------------------------------------------------------------------------- */
+"use strict";
+
+const N = 65, RING = 60, GRB_FIRST = 60;
+const CORNER_BR = 3, CORNER_BL = 23, CORNER_TOP = 43;
+const EYE_C = 60, EYE_L = 61, EYE_R = 62, TOP_L = 63, TOP_R = 64;
+const BRIGHT_LEVELS = [12, 24, 45, 80, 130];
+const POWER_LIMIT_MA = 700;
+const TRI_ASPECT = 1.732;
+const EYE_CX = 0, EYE_CY = 41;
+const BTN_LONG_MS = 700, BTN_REPEAT_MS = 450;
+
+/* --- integer helpers ------------------------------------------------------ */
+const u8  = v => v & 255;
+const u16 = v => v & 65535;
+const scale8 = (v, s) => (v * (s + 1)) >> 8;
+const qadd8  = (a, b) => { const t = a + b; return t > 255 ? 255 : t; };
+const sharpen = v => { v = scale8(v, v); return scale8(v, v); };
+const rnd = (a, b) => b === undefined ? Math.floor(Math.random() * a)
+                                      : a + Math.floor(Math.random() * (b - a));
+
+const SIN8 = new Uint8Array(256);
+for (let i = 0; i < 256; i++) SIN8[i] = Math.round(127.5 + 127.4 * Math.sin(i * (2 * Math.PI / 256)));
+const sin8 = t => SIN8[t & 255];
+
+const GAMMA_EXP = 2.2;                           // matches GAMMA_EXP in the sketch
+const GAMMA = new Uint8Array(256);
+for (let i = 0; i < 256; i++) GAMMA[i] = Math.round(Math.pow(i / 255, GAMMA_EXP) * 255);
+
+/* Adafruit_NeoPixel::ColorHSV, ported exactly. */
+function ColorHSV(hue, sat = 255, val = 255) {
+  hue = u16(hue);
+  let r, g, b;
+  hue = Math.floor((hue * 1530 + 32768) / 65536);
+  if (hue < 510)       { b = 0; if (hue < 255) { r = 255; g = hue; } else { r = 510 - hue; g = 255; } }
+  else if (hue < 1020) { r = 0; if (hue < 765) { g = 255; b = hue - 510; } else { g = 1020 - hue; b = 255; } }
+  else if (hue < 1530) { g = 0; if (hue < 1275) { r = hue - 1020; b = 255; } else { r = 255; b = 1530 - hue; } }
+  else                 { r = 255; g = 0; b = 0; }
+  const v1 = 1 + val, s1 = 1 + sat, s2 = 255 - sat;
+  return ((((((r * s1) >> 8) + s2) * v1) & 0xff00) << 8) |
+         (((((g * s1) >> 8) + s2) * v1) & 0xff00) |
+         (((((b * s1) >> 8) + s2) * v1) >> 8);
+}
+
+/* Three chained boards of 20 LEDs each. Each carries one corner at its local
+   position 3, so the seams sit three LEDs before each corner (19|20, 39|40,
+   59|0) rather than at the corners -- the twist that pinwheels three boards
+   into one triangle. */
+const FRAG_COUNT = 3, FRAG_LEN = 20;
+const fragOf = i => Math.floor(i / FRAG_LEN);
+const posInFrag = i => i % FRAG_LEN;
+
+/* THREE WAYS TO WALK THE BADGE. Strand order (0..59) is what the wire does --
+   it dives off the outline into each board's tail and jumps back, which is
+   right for Fragment Chain and wrong for anything that reads as motion along an
+   edge. Perimeter order (PERIM) is the 48 outline LEDs in the order the eye
+   walks them; chases belong there. Position (ringX/ringY/ringDist) ignores
+   ordering and treats the badge as a screen. */
+const PERIM_COUNT = 48;
+const PERIM = new Uint8Array(PERIM_COUNT);
+const perimPos = new Uint8Array(N).fill(255);
+(function buildPerimeter() {
+  let q = 0;
+  for (let e = 0; e < 3; e++) {
+    const n = (e + 1) % 3;
+    for (let k = 0; k <= 12; k++) PERIM[q++] = e * FRAG_LEN + CORNER_BR + k;
+    for (let k = 0; k <  3; k++)  PERIM[q++] = n * FRAG_LEN + k;
+  }
+  for (let i = 0; i < PERIM_COUNT; i++) perimPos[PERIM[i]] = i;
+})();
+const perimGap = (a, b) => { const d = (a + PERIM_COUNT - b) % PERIM_COUNT;
+                             return d > PERIM_COUNT / 2 ? PERIM_COUNT - d : d; };
+
+const ringPos = i => (i + RING - CORNER_BR) % RING;
+const ringIdx = r => (r + CORNER_BR) % RING;
+function ringGap(a, b) { const d = (a + RING - b) % RING; return d > RING / 2 ? RING - d : d; }
+
+/* As ringPoint, but walking the outline so a head follows the edge instead of
+   diving into a board's tail every twenty LEDs. */
+function perimPoint(p, r, g, b) {
+  const whole = (p >> 4) % PERIM_COUNT, frac = p & 15;
+  const wB = frac * 17, wA = 255 - wB;
+  fbAdd(PERIM[whole], scale8(r, wA), scale8(g, wA), scale8(b, wA));
+  fbAdd(PERIM[(whole + 1) % PERIM_COUNT], scale8(r, wB), scale8(g, wB), scale8(b, wB));
+}
+
+/* Each board's four tail LEDs hang off perimeter position 12 of its own edge.
+   Something travelling the outline spills down them as it passes. */
+function spillTail(headP, r, g, b) {
+  for (let f = 0; f < FRAG_COUNT; f++) {
+    const anchor = (f * 16 + 12) * 16;
+    const d = (headP + PERIM_COUNT * 16 - anchor) % (PERIM_COUNT * 16);
+    if (d >= 4 * 16) continue;
+    const k = d >> 4, w = 255 - (d & 15) * 16;
+    fbAdd(f * FRAG_LEN + 16 + k, scale8(r, w), scale8(g, w), scale8(b, w));
+  }
+}
+
+/* --- geometry ------------------------------------------------------------- */
+const ringX = new Int8Array(RING), ringY = new Int8Array(RING), ringDist = new Uint8Array(RING);
+const auxX = [0, -32, 32, -29, 28], auxY = [41, 41, 41, 50, 51];
+
+/* Polar coordinates about the eye, for every LED including the five inside.
+   The badge has real radial structure -- outline at the rim, the twelve tail
+   LEDs partway in, the eye at the middle -- so anything that turns or winds can
+   work in these rather than in position or order. */
+const polR = new Uint8Array(N);          // 0 at the eye, ~251 at a corner
+const polA = new Uint8Array(N);          // angle about the eye, 0..255 per turn
+
+/* Same construction as buildGeometry() in the sketch. Each board: three LEDs
+   up the previous edge, its corner, twelve down the next edge, then a tail of
+   two turns of two LEDs that leaves the perimeter. Sixteen steps corner to
+   corner, because the tail costs the edge no LEDs of its own. */
+const TAIL_A1 = -60, TAIL_A2 = -60, EDGE_STEPS = 16;
+{
+  const cx = [1, -1, 0], cy = [0, 0, TRI_ASPECT];        // BR, BL, apex
+  const px = new Array(RING), py = new Array(RING);
+
+  for (let e = 0; e < 3; e++) {
+    const n = (e + 1) % 3;
+    const ax = cx[e], ay = cy[e];
+    const dx = (cx[n] - ax) / EDGE_STEPS, dy = (cy[n] - ay) / EDGE_STEPS;
+
+    for (let k = 0; k <= 12; k++) {                       // corner + this board's twelve
+      const i = e * FRAG_LEN + CORNER_BR + k;
+      px[i] = ax + dx * k; py[i] = ay + dy * k;
+    }
+    for (let k = 13; k < 16; k++) {                       // next board's leg
+      const i = n * FRAG_LEN + (k - 13);
+      px[i] = ax + dx * k; py[i] = ay + dy * k;
+    }
+
+    const sxp = ax + dx * 12, syp = ay + dy * 12;         // the tail leaves here
+    const a1 = TAIL_A1 * Math.PI / 180;
+    const e1x = dx * Math.cos(a1) - dy * Math.sin(a1);
+    const e1y = dx * Math.sin(a1) + dy * Math.cos(a1);
+    const b = e * FRAG_LEN + 16;
+    px[b] = sxp + e1x;         py[b] = syp + e1y;
+    px[b + 1] = sxp + e1x * 2; py[b + 1] = syp + e1y * 2;
+
+    const qx = px[b + 1], qy = py[b + 1];
+    const a2 = TAIL_A2 * Math.PI / 180;
+    const e2x = e1x * Math.cos(a2) - e1y * Math.sin(a2);
+    const e2y = e1x * Math.sin(a2) + e1y * Math.cos(a2);
+    px[b + 2] = qx + e2x;      py[b + 2] = qy + e2y;
+    px[b + 3] = qx + e2x * 2;  py[b + 3] = qy + e2y * 2;
+  }
+
+  const eyeX = EYE_CX / 100, eyeY = (EYE_CY / 100) * TRI_ASPECT;
+  for (let i = 0; i < RING; i++) {
+    ringX[i] = Math.round(px[i] * 100);
+    ringY[i] = Math.round(py[i] / TRI_ASPECT * 100);
+    ringDist[i] = Math.min(255, Math.floor(Math.hypot(px[i] - eyeX, py[i] - eyeY) * 205));
+  }
+  for (let i = 0; i < N; i++) {
+    const x = i < RING ? px[i] : auxX[i - GRB_FIRST] / 100;
+    const y = i < RING ? py[i] : (auxY[i - GRB_FIRST] / 100) * TRI_ASPECT;
+    const dx = x - eyeX, dy = y - eyeY;
+    polR[i] = Math.min(255, Math.floor(Math.hypot(dx, dy) * 205));
+    polA[i] = Math.round((Math.atan2(dy, dx) + Math.PI) * (256 / (2 * Math.PI))) & 255;
+  }
+}
+const pxX = i => i < RING ? ringX[i] : auxX[i - GRB_FIRST];
+const pxY = i => i < RING ? ringY[i] : auxY[i - GRB_FIRST];
+
+/* --- framebuffer ---------------------------------------------------------- */
+const fb = new Uint8Array(N * 3);
+const out = new Uint8Array(N * 3);
+const scratch = new Uint8Array(N);
+
+const fbClear = () => fb.fill(0);
+function fbSet(i, r, g, b) { const k = i * 3; fb[k] = r; fb[k + 1] = g; fb[k + 2] = b; }
+function fbAdd(i, r, g, b) { const k = i * 3; fb[k] = qadd8(fb[k], r); fb[k + 1] = qadd8(fb[k + 1], g); fb[k + 2] = qadd8(fb[k + 2], b); }
+function fbFade(from, to, keep) { for (let k = from * 3; k < to * 3; k++) fb[k] = scale8(fb[k], keep); }
+const fbFadeRing = keep => fbFade(0, RING, keep);
+const fbFadeAll  = keep => fbFade(0, N, keep);
+function fbFill(from, to, r, g, b) { for (let i = from; i < to; i++) fbSet(i, r, g, b); }
+function fbSetHSV(i, h, s, v) { const c = ColorHSV(h, s, v); fbSet(i, (c >> 16) & 255, (c >> 8) & 255, c & 255); }
+function fbAddHSV(i, h, s, v) { const c = ColorHSV(h, s, v); fbAdd(i, (c >> 16) & 255, (c >> 8) & 255, c & 255); }
+
+function ringPoint(p, r, g, b) {
+  const whole = (p >> 4) % RING, frac = p & 15;
+  const wB = frac * 17, wA = 255 - wB;
+  fbAdd(ringIdx(whole), scale8(r, wA), scale8(g, wA), scale8(b, wA));
+  fbAdd(ringIdx((whole + 1) % RING), scale8(r, wB), scale8(g, wB), scale8(b, wB));
+}
+
+/* --- engine state --------------------------------------------------------- */
+let now = 0, gFrame = 0, gMode = 0, gBright = 2;
+const st = {};                                   // per-animation state, cleared on mode change
+const t8 = d => Math.floor(now / d) & 255;
+
+/* --- ambient -------------------------------------------------------------- */
+function animBreathe() {
+  const phase = t8(20), b = sin8(phase);
+  const v = 14 + scale8(b, 120);
+  for (let i = 0; i < RING; i++) fbSet(i, 0, scale8(v, 210), v);
+  const cv = 40 + scale8(b, 180);
+  fbSet(CORNER_BR, 0, scale8(cv, 210), cv);
+  fbSet(CORNER_BL, 0, scale8(cv, 210), cv);
+  fbSet(CORNER_TOP, 0, scale8(cv, 210), cv);
+  const e = 25 + scale8(sin8(phase + 26), 200);
+  fbSet(EYE_C, e, e, e);
+  fbSet(EYE_L, scale8(e, 170), scale8(e, 200), e);
+  fbSet(EYE_R, scale8(e, 170), scale8(e, 200), e);
+  const t = scale8(e, 165);                          // wash the white with the eye
+  fbSet(TOP_L, t, t, scale8(t, 235));
+  fbSet(TOP_R, t, t, scale8(t, 235));
+}
+
+function animDrift() {
+  const base = u16(Math.floor(now * 3));
+  for (let i = 0; i < RING; i++) fbSetHSV(i, u16(base + ringPos(i) * 240), 235, 120);
+  const eyeHue = u16(base + 32768);
+  const puls = 150 + scale8(sin8(t8(22)), 105);
+  fbSetHSV(EYE_C, eyeHue, 60, puls);
+  fbSetHSV(EYE_L, eyeHue, 120, scale8(puls, 190));
+  fbSetHSV(EYE_R, eyeHue, 120, scale8(puls, 190));
+  fbSetHSV(TOP_L, eyeHue, 85, scale8(puls, 160));
+  fbSetHSV(TOP_R, eyeHue, 85, scale8(puls, 160));
+}
+
+function animPlasma() {
+  const t = t8(26);
+  for (let i = 0; i < N; i++) {
+    const x = pxX(i), y = pxY(i);
+    const a = sin8(x + t * 2), b = sin8(y * 2 - t * 3), c = sin8((x + y) + t);
+    const v = Math.floor((a + b + c) / 3);
+    fbSetHSV(i, u16(v * 200 + u16(Math.floor(now))), 220, 45 + scale8(v, 190));
+  }
+}
+
+function animCandle() {
+  if (gFrame === 0) { st.global = 180; scratch.fill(150); }
+  st.global = Math.min(235, Math.max(110, st.global + rnd(-18, 19)));
+  for (let i = 0; i < N; i++) {
+    scratch[i] = Math.min(200, Math.max(100, scratch[i] + rnd(-10, 11)));
+    let v = scale8(st.global, scratch[i]);
+    if (i >= GRB_FIRST) v = qadd8(v, 45);
+    fbSet(i, v, scale8(v, 105), scale8(v, 12));
+  }
+}
+
+/* --- perimeter motion ----------------------------------------------------- */
+function animComet() {
+  if (gFrame === 0) { st.p = 0; fbClear(); }
+  fbFadeRing(228);
+  st.p = (st.p + 9) % (PERIM_COUNT * 16);
+  const hue = u16(Math.floor(now * 6));
+  const c = ColorHSV(hue, 200, 255);
+  const r = (c >> 16) & 255, g = (c >> 8) & 255, b = c & 255;
+  perimPoint(st.p, r, g, b);
+  perimPoint((st.p + 20) % (PERIM_COUNT * 16), scale8(r, 60), scale8(g, 60), scale8(b, 60));
+  spillTail(st.p, scale8(r, 150), scale8(g, 150), scale8(b, 150));
+  const glow = 90 + scale8(sin8(st.p >> 2), 90);
+  fbSetHSV(EYE_C, hue, 160, glow);
+  fbSetHSV(EYE_L, hue, 200, scale8(glow, 220));
+  fbSetHSV(EYE_R, hue, 200, scale8(glow, 220));
+  fbSetHSV(TOP_L, hue, 110, scale8(glow, 205));      // eye glows with the comet
+  fbSetHSV(TOP_R, hue, 110, scale8(glow, 205));
+}
+
+function animCollide() {
+  if (gFrame === 0) { st.a = 0; st.b = 24 * 16; st.flash = 0; fbClear(); }
+  fbFadeRing(224);
+  st.a = (st.a + 8) % (PERIM_COUNT * 16);
+  st.b = (st.b + PERIM_COUNT * 16 - 8) % (PERIM_COUNT * 16);
+  perimPoint(st.a, 255, 110, 10);
+  perimPoint(st.b, 10, 170, 255);
+  spillTail(st.a, 150, 65, 6);
+  spillTail(st.b, 6, 100, 150);
+  const ga = st.a >> 4, gb = st.b >> 4;
+  if (perimGap(ga, gb) <= 1) st.flash = 255;
+  if (st.flash) {
+    for (let d = -3; d <= 3; d++) {
+      const w = scale8(st.flash, 255 - Math.abs(d) * 70);
+      fbAdd(PERIM[(ga + PERIM_COUNT + d) % PERIM_COUNT], w, w, w);
+    }
+    st.flash = scale8(st.flash, 205);
+  }
+  const e = qadd8(60, st.flash);
+  fbSet(EYE_C, e, e, e);
+  fbSet(EYE_L, scale8(e, 130), scale8(e, 130), e);
+  fbSet(EYE_R, e, scale8(e, 130), scale8(e, 130));
+  const w = qadd8(32, st.flash);                     // the white catches the hit
+  fbSet(TOP_L, w, w, qadd8(w, 22));
+  fbSet(TOP_R, w, w, qadd8(w, 22));
+}
+
+function animRainbow() {
+  const base = u16(Math.floor(now * 14));
+  for (let i = 0; i < PERIM_COUNT; i++)
+    fbSetHSV(PERIM[i], u16(base + i * Math.floor(65536 / PERIM_COUNT)), 255, 200);
+  for (let f = 0; f < FRAG_COUNT; f++)
+    for (let k = 0; k < 4; k++)
+      fbSetHSV(f * FRAG_LEN + 16 + k,
+               u16(base + (f * 16 + 12 + k) * Math.floor(65536 / PERIM_COUNT)), 255, 150);
+  fbSetHSV(EYE_C, u16(base + 32768), 40, 220);
+  fbSetHSV(EYE_L, base, 255, 170);
+  fbSetHSV(EYE_R, u16(base + 21845), 255, 170);
+  fbSetHSV(TOP_L, u16(base + 32768), 105, 195);
+  fbSetHSV(TOP_R, u16(base + 32768), 105, 195);
+}
+
+function animCorners() {
+  if (gFrame === 0) { st.radius = 0; fbClear(); }
+  fbFadeRing(200);
+  const hue = u16(Math.floor(now * 4));
+  const lead = st.radius >= 8 ? 0 : 255 - st.radius * 15;
+  // Corners sit at perimeter 0, 16 and 32; halves meet eight steps out.
+  for (let c = 0; c < 3; c++) {
+    const base = c * 16;
+    fbAddHSV(PERIM[base], hue, 200, 120);
+    if (st.radius <= 8) {
+      fbAddHSV(PERIM[(base + st.radius) % PERIM_COUNT], hue, 190, qadd8(lead, 40));
+      fbAddHSV(PERIM[(base + PERIM_COUNT - st.radius) % PERIM_COUNT], hue, 190, qadd8(lead, 40));
+      if (st.radius === 8) {
+        const mid = (base + 8) % PERIM_COUNT;
+        fbAdd(PERIM[mid], 255, 255, 255);
+        fbAdd(PERIM[(mid + 1) % PERIM_COUNT], 120, 120, 120);
+        fbAdd(PERIM[(mid + PERIM_COUNT - 1) % PERIM_COUNT], 120, 120, 120);
+      }
+      spillTail(((base + st.radius) % PERIM_COUNT) * 16, 90, 60, 30);
+    }
+  }
+  if (++st.radius > 11) st.radius = 0;
+  const e = st.radius === 0 ? 220 : 70 + scale8(sin8(st.radius * 18), 60);
+  fbSetHSV(EYE_C, hue, 120, e);
+  fbSetHSV(EYE_L, hue, 200, scale8(e, 160));
+  fbSetHSV(EYE_R, hue, 200, scale8(e, 160));
+  fbSetHSV(TOP_L, hue, 125, scale8(e, 195));
+  fbSetHSV(TOP_R, hue, 125, scale8(e, 195));
+}
+
+/* --- eye-driven ----------------------------------------------------------- */
+function animEyePulse() {
+  const phase = t8(7), hue = u16(30000 + Math.floor(now / 2));
+  for (let i = 0; i < RING; i++) {
+    const w = sin8(ringDist[i] * 2 - phase);
+    fbSetHSV(i, hue, 210, 12 + scale8(sharpen(w), 210));
+  }
+  const beat = sin8(phase), e = 70 + scale8(beat, 185);
+  fbSetHSV(EYE_C, hue, 30, e);
+  fbSetHSV(EYE_L, hue, 150, scale8(e, 170));
+  fbSetHSV(EYE_R, hue, 150, scale8(e, 170));
+  fbSetHSV(TOP_L, hue, 85, 55 + scale8(beat, 200));
+  fbSetHSV(TOP_R, hue, 85, 55 + scale8(beat, 200));
+}
+
+function animCharge() {
+  const t = Math.floor(now) % 3600;
+  fbFadeRing(178);
+
+  if (t < 1500) {                                    // winding up
+    const k = Math.floor((t * 255) / 1500), e = scale8(k, k);
+    fbSet(EYE_C, scale8(e, 200), scale8(e, 240), 255);
+    fbSet(EYE_L, scale8(e, 90), scale8(e, 150), scale8(e, 220));
+    fbSet(EYE_R, scale8(e, 90), scale8(e, 150), scale8(e, 220));
+    const amb = scale8(e, 30);
+    for (let i = 0; i < RING; i++) fbAdd(i, 0, scale8(amb, 120), amb);
+    fbSet(TOP_L, scale8(e, 125), scale8(e, 185), scale8(e, 245));
+    fbSet(TOP_R, scale8(e, 125), scale8(e, 185), scale8(e, 245));
+
+  } else if (t < 1570) {                             // the beat of dark before it goes
+    fbFadeAll(96);
+
+  } else if (t < 1850) {                             // FIRE
+    const f = 255 - Math.floor(((t - 1570) * 225) / 280);
+    for (let i = 0; i < RING; i++) fbSet(i, scale8(f, 190), scale8(f, 230), f);
+    fbSet(CORNER_BR, f, f, f); fbSet(CORNER_BL, f, f, f); fbSet(CORNER_TOP, f, f, f);
+    fbFill(GRB_FIRST, N, f, f, f);
+
+  } else if (t < 2750) {                             // the discharge runs the edges
+    const p = Math.floor(((t - 1850) * 136) / 900);
+    for (let c = 0; c < 3; c++) {
+      const base = c * 16 * 16;
+      perimPoint((base + p) % (PERIM_COUNT * 16), 120, 220, 255);
+      perimPoint((base + PERIM_COUNT * 16 - p) % (PERIM_COUNT * 16), 120, 220, 255);
+      spillTail((base + p) % (PERIM_COUNT * 16), 70, 130, 150);
+    }
+    const e = 255 - Math.floor(((t - 1850) * 215) / 900);
+    fbSet(EYE_C, scale8(e, 200), scale8(e, 240), e);
+    fbSet(EYE_L, scale8(e, 80), scale8(e, 120), scale8(e, 200));
+    fbSet(EYE_R, scale8(e, 80), scale8(e, 120), scale8(e, 200));
+    fbSet(TOP_L, 0, scale8(e, 145), scale8(e, 205));
+    fbSet(TOP_R, 0, scale8(e, 145), scale8(e, 205));
+
+  } else {
+    fbFadeAll(196);                                  // all the way down, loop closes
+  }
+}
+
+function animScanner() {
+  const look = sin8(t8(14)), line = sin8(t8(9));
+  const lineY = Math.floor((line * 100) / 255);
+  for (let i = 0; i < RING; i++) {
+    const d = Math.abs(ringY[i] - lineY);
+    const v = d >= 14 ? 0 : 255 - d * 18;
+    fbSet(i, scale8(v, 255), scale8(v, 40), scale8(v, 20));
+    fbAdd(i, 6, 0, 0);
+  }
+  fbAdd(CORNER_BR, 20, 0, 0); fbAdd(CORNER_BL, 20, 0, 0); fbAdd(CORNER_TOP, 20, 0, 0);
+  fbSet(EYE_C, 255, 60, 30);
+  fbSet(EYE_L, scale8(255 - look, 255), scale8(255 - look, 50), 0);
+  fbSet(EYE_R, scale8(look, 255), scale8(look, 50), 0);
+  // The white catches the scan as the line sweeps past the eye's own height.
+  const dEye = Math.abs(EYE_CY - lineY);
+  const wash = dEye >= 22 ? 18 : 18 + (22 - dEye) * 10;
+  fbSet(TOP_L, wash, scale8(wash, 42), scale8(wash, 18));
+  fbSet(TOP_R, wash, scale8(wash, 42), scale8(wash, 18));
+}
+
+/* --- the fragments themselves --------------------------------------------- */
+function animAperture() {
+  const t = Math.floor(now) % 4600;
+  let open, flash = 0;
+  if (t < 600)       open = 255 - Math.floor((t * 255) / 600);
+  else if (t < 1800) {                               // shut, and the flash fires
+    open = 0;
+    const ph = (t - 900) % 300;
+    if (t >= 900) {
+      if (ph < 70)       flash = 255;
+      else if (ph < 165) flash = 255 - Math.floor(((ph - 70) * 255) / 95);
+    }
+  }
+  else if (t < 3400) open = Math.floor(((t - 1800) * 255) / 1600);
+  else               open = 255;
+
+  const reach = 2 + scale8(255 - open, 18);
+  const hue = 7000;
+
+  fbFill(0, RING, 0, 0, 0);
+  for (let f = 0; f < FRAG_COUNT; f++) {
+    for (let k = 0; k < reach && k < FRAG_LEN; k++) {
+      const d = reach - 1 - k;
+      const v = d < 2 ? 255 : 160 - (d > 14 ? 14 : d) * 7;
+      fbSetHSV(f * FRAG_LEN + k, hue, d < 2 ? 110 : 225, v);
+    }
+  }
+  const light = scale8(open, open), blade = 255 - open;
+  fbSet(EYE_C, light, scale8(light, 235), scale8(light, 205));
+  fbSetHSV(EYE_L, hue, 220, scale8(blade, 190));
+  fbSetHSV(EYE_R, hue, 220, scale8(blade, 190));
+  fbSetHSV(TOP_L, hue, 55, qadd8(scale8(light, 215), scale8(blade, 35)));
+  fbSetHSV(TOP_R, hue, 55, qadd8(scale8(light, 215), scale8(blade, 35)));
+
+  if (flash) {                                       // three hard white pops
+    fbSet(EYE_C, flash, flash, flash);
+    fbSet(EYE_L, flash, flash, flash);
+    fbSet(EYE_R, flash, flash, flash);
+    fbSet(TOP_L, flash, flash, flash);
+    fbSet(TOP_R, flash, flash, flash);
+    const spill = scale8(flash, 55);
+    for (let i = 0; i < RING; i++) fbAdd(i, spill, spill, qadd8(spill, 8));
+  }
+}
+
+function animChain() {
+  fbFadeRing(200);
+  // Every board is powered and the chain always carries data: no start, no stop.
+  for (let i = 0; i < RING; i++) fbAdd(i, 0, 14, 6);
+
+  const PERIOD = 3300;
+  for (let k = 0; k < 3; k++) {
+    const ph = (Math.floor(now) + k * (PERIOD / 3)) % PERIOD;
+    const h16 = Math.floor((ph * (RING * 16)) / PERIOD);
+    const head = (h16 >> 4) % RING;
+    for (let tail = 0; tail < 7; tail++) {
+      const i = (head + RING - tail) % RING;
+      const w = 255 - tail * 36;
+      fbAdd(i, 0, w, scale8(w, 45));
+    }
+    if (posInFrag(head) === 0) {
+      fbAdd((head + RING - 1) % RING, 190, 190, 255);
+      fbAdd(head, 190, 190, 255);
+    }
+  }
+  const pulse = sin8(Math.floor(now / 9));
+  fbSet(EYE_C, 0, 170 + scale8(pulse, 85), 80);
+  fbSet(EYE_L, 0, 120, 20);
+  fbSet(EYE_R, 0, 120, 20);
+  fbSet(TOP_L, 0, 60 + scale8(pulse, 120), 30);
+  fbSet(TOP_R, 0, 60 + scale8(pulse, 120), 30);
+}
+
+/* --- spirals -------------------------------------------------------------- *
+ * Phase = a*angle + b*radius + c*time. a sets the arm count, b how tightly they
+ * wind, and the signs of b and c together decide inward or outward.
+ *
+ * polA increases counter-clockwise from the front, so the angle term's sign
+ * sets which way a spiral turns and the radius term's sign sets in or out. All
+ * three turn clockwise. The radius coefficient must stay near 1: the badge has
+ * only three radial bands (rim 164, tails 133, eye 52), so a coefficient of 2 or
+ * 3 wraps the phase between them and the winding aliases away.                */
+const SPIN = a => 255 - a;
+
+function animVortex() {
+  if (gFrame === 0) st.spin = 0;
+  const rate = sin8(Math.floor(now / 110));
+  st.spin = (st.spin + (rate - 96)) & 65535;         // eases, stalls, briefly reverses
+  const t = (st.spin >> 3) & 255;
+
+  const hue = u16(41000 + Math.floor(now / 4));
+  for (let i = 0; i < N; i++) {
+    const v = sharpen(sin8(SPIN(polA[i]) * 3 - polR[i] - t));
+    fbSetHSV(i, u16(hue + polR[i] * 45), 205, 18 + scale8(v, 225));
+  }
+}
+
+function animRadar() {
+  if (gFrame === 0) fbClear();
+  fbFadeAll(206);
+  const sweep = Math.floor(now / 8) & 255;
+  for (let i = 0; i < N; i++) {
+    const d = (sweep - SPIN(polA[i])) & 255;         // 0 at the beam, growing behind
+    if (d > 30) continue;
+    fbAddHSV(i, 21000, d < 3 ? 80 : 235, 255 - d * 8);
+  }
+  for (let i = 0; i < N; i++) fbAdd(i, 0, 7, 2);     // faint standing ground
+}
+
+function animBloom() {
+  const t = Math.floor(now / 11) & 255;
+  const hue = u16(8000 + Math.floor(now / 9));
+  for (let i = 0; i < N; i++) {
+    const v = sharpen(sin8(polA[i] * 2 - polR[i] + t));
+    const reach = 255 - scale8(polR[i], 150);        // thrown, so it thins out
+    fbSetHSV(i, u16(hue + polR[i] * 30), 215, 12 + scale8(scale8(v, reach), 225));
+  }
+  const core = 190 + scale8(sin8(t * 2), 65);        // the source sits above it
+  fbSet(EYE_C, core, scale8(core, 205), scale8(core, 130));
+  fbSet(EYE_L, scale8(core, 220), scale8(core, 150), scale8(core, 60));
+  fbSet(EYE_R, scale8(core, 220), scale8(core, 150), scale8(core, 60));
+  fbSet(TOP_L, core, scale8(core, 190), scale8(core, 110));
+  fbSet(TOP_R, core, scale8(core, 190), scale8(core, 110));
+}
+
+/* --- glitch / hacker ------------------------------------------------------ */
+const DROPS = 20, DROP_COL = 5, DROP_HEAD = 48, DROP_TAIL = 620;
+function animMatrix() {
+  // The badge is a wall and the drops fall through it. Constant speed through
+  // SPACE, not from LED to LED, so the gap between two lit LEDs is however long
+  // the empty board between them takes to cross. The eye is not part of the wall.
+  if (gFrame === 0) {
+    fbClear();
+    st.dx = new Array(DROPS).fill(0); st.dy = new Array(DROPS).fill(0);
+    st.spd = new Array(DROPS).fill(0); st.live = new Array(DROPS).fill(false);
+  }
+
+  // A faint field of glyphs behind the rain, so the wall is never a void.
+  fbFill(0, RING, 0, 0, 0);
+  for (let i = 0; i < RING; i++) {
+    if (rnd(100) < 4) scratch[i] = rnd(45, 130);
+    else              scratch[i] = scale8(scratch[i], 226);
+    fbAdd(i, 0, qadd8(scratch[i], 7), scale8(scratch[i], 20));
+  }
+
+  for (let d = 0; d < DROPS; d++) {
+    if (!st.live[d]) {
+      if (rnd(100) < 32) {
+        const x = rnd(-99, 100);
+        st.dx[d] = x;
+        st.dy[d] = (100 - Math.abs(x)) * 16 + 48;      // the board's ceiling for that column
+        st.spd[d] = rnd(13, 30);
+        st.live[d] = true;
+      }
+      continue;
+    }
+
+    st.dy[d] -= st.spd[d];
+    if (st.dy[d] < -DROP_TAIL) { st.live[d] = false; continue; }
+
+    for (let i = 0; i < RING; i++) {
+      const dx = Math.abs(pxX(i) - st.dx[d]);
+      if (dx > DROP_COL) continue;
+
+      const dy = pxY(i) * 16 - st.dy[d];               // >0 = above the head
+      let v;
+      if (dy < -DROP_HEAD)      continue;
+      else if (dy <= DROP_HEAD) v = 255;
+      else if (dy <= DROP_TAIL) v = 230 - Math.floor(((dy - DROP_HEAD) * 215) / (DROP_TAIL - DROP_HEAD));
+      else                      continue;
+
+      const lat = 255 - Math.floor((dx * 255) / DROP_COL);
+      const w = scale8(v, lat);
+      if (v === 255) fbAdd(i, scale8(w, 70), w, scale8(w, 105));
+      else           fbAdd(i, 0, w, scale8(w, 28));
+    }
+  }
+
+  const cursor = (Math.floor(now) % 900 < 550) ? 210 : 30;
+  fbSet(EYE_C, 0, cursor, scale8(cursor, 28));
+  fbSet(EYE_L, 0, scale8(cursor, 90), 0);
+  fbSet(EYE_R, 0, scale8(cursor, 90), 0);
+  fbSet(TOP_L, 0, scale8(cursor, 155), scale8(cursor, 22));
+  fbSet(TOP_R, 0, scale8(cursor, 155), scale8(cursor, 22));
+}
+
+function animGlitch() {
+  const hue = 34000;
+  for (let i = 0; i < RING; i++) {
+    const base = 30 + scale8(sin8(ringPos(i) * 6 + Math.floor(now / 18)), 60);
+    fbSetHSV(i, hue, 230, base);
+  }
+  if (rnd(100) < 30) {
+    const start = rnd(RING), len = rnd(3, 14), bad = rnd(2) ? 0 : 43000;
+    for (let k = 0; k < len; k++) fbSetHSV(ringIdx((start + k) % RING), bad, 255, rnd(120, 256));
+  }
+  for (let i = 0; i < RING; i++) if (rnd(100) < 8) fbSet(i, 0, 0, 0);
+  if (rnd(1000) < 25) {
+    for (let i = 0; i < RING; i++) { const v = rnd(60, 256); fbSet(i, v, scale8(v, 30), scale8(v, 200)); }
+  }
+  const stutter = rnd(100) < 18, e = stutter ? rnd(0, 90) : 200;
+  fbSetHSV(EYE_C, stutter ? 0 : hue, stutter ? 255 : 40, e);
+  fbSetHSV(EYE_L, hue, 220, stutter ? 20 : 130);
+  fbSetHSV(EYE_R, hue, 220, stutter ? 130 : 20);
+  fbSetHSV(TOP_L, hue, 240, rnd(100) < 15 ? 0 : 80);
+  fbSetHSV(TOP_R, hue, 240, rnd(100) < 15 ? 0 : 80);
+}
+
+function animBoot() {
+  const t = Math.floor(now) % 5600;
+  fbClear();
+  if (t < 1600) {
+    const lit = Math.floor((t * PERIM_COUNT) / 1600);
+    for (let r = 0; r <= lit && r < PERIM_COUNT; r++) {
+      const age = lit - r, v = age > 8 ? 45 : 255 - age * 26;
+      fbSet(PERIM[r], scale8(v, 40), scale8(v, 190), v);
+    }
+    for (let f = 0; f < FRAG_COUNT; f++) {           // tails fill in behind it
+      const anchor = f * 16 + 12;
+      for (let k = 0; k < 4; k++) {
+        if (lit <= anchor + k) continue;
+        const age = lit - anchor - k, v = age > 8 ? 45 : 255 - age * 26;
+        fbSet(f * FRAG_LEN + 16 + k, scale8(v, 40), scale8(v, 190), v);
+      }
+    }
+  } else if (t < 2600) {
+    fbFill(0, RING, 18, 60, 70);
+    const s = t - 1600, corner = [CORNER_BR, CORNER_BL, CORNER_TOP];
+    for (let c = 0; c < 3; c++) {
+      if (s > c * 280) {
+        const age = s - c * 280, v = age > 300 ? 200 : 255 - Math.floor((age * 55) / 300);
+        fbSet(corner[c], v, v, v);
+      }
+    }
+  } else if (t < 3800) {
+    fbFill(0, RING, 18, 60, 70);
+    fbSet(CORNER_BR, 200, 200, 200); fbSet(CORNER_BL, 200, 200, 200); fbSet(CORNER_TOP, 200, 200, 200);
+    const s = t - 2600, side = s > 400 ? 255 : Math.floor((s * 255) / 400);
+    fbSet(EYE_L, scale8(side, 120), scale8(side, 200), scale8(side, 255));
+    fbSet(EYE_R, scale8(side, 120), scale8(side, 200), scale8(side, 255));
+    if (s > 400) {
+      const c = Math.floor(((s - 400) * 255) / 800);
+      fbSet(EYE_C, c, c, c);
+      fbSet(TOP_L, scale8(c, 120), scale8(c, 200), c);
+      fbSet(TOP_R, scale8(c, 120), scale8(c, 200), c);
+    }
+  } else if (t < 4700) {
+    const on = Math.floor((t - 3800) / 150) % 2 === 0, v = on ? 220 : 20;
+    fbFill(0, RING, scale8(v, 40), scale8(v, 200), v);
+    fbFill(GRB_FIRST, N, v, v, v);
+  } else {
+    const b = 60 + scale8(sin8(Math.floor((t - 4700) / 3)), 40);
+    fbFill(0, RING, 0, scale8(b, 210), b);
+    fbSet(CORNER_BR, 0, scale8(b, 200), qadd8(b, 40));
+    fbSet(CORNER_BL, 0, scale8(b, 200), qadd8(b, 40));
+    fbSet(CORNER_TOP, 0, scale8(b, 200), qadd8(b, 40));
+    fbFill(GRB_FIRST, N, 150, 200, 230);
+  }
+}
+
+
+/* --- animation table (mirrors ANIMS[] in the sketch) ---------------------- */
+const ANIMS = [
+  { fn: animBreathe,      ms: 25, name: "Breathe",       fam: "Ambient"   },
+  { fn: animDrift,        ms: 30, name: "Drift",         fam: "Ambient"   },
+  { fn: animPlasma,       ms: 28, name: "Plasma",        fam: "Ambient"   },
+  { fn: animCandle,       ms: 55, name: "Candle",        fam: "Ambient"   },
+  { fn: animComet,        ms: 18, name: "Comet",         fam: "Perimeter" },
+  { fn: animCollide,      ms: 18, name: "Collide",       fam: "Perimeter" },
+  { fn: animRainbow,      ms: 22, name: "Rainbow",       fam: "Perimeter" },
+  { fn: animCorners,      ms: 45, name: "Corner Pulse",  fam: "Perimeter" },
+  { fn: animEyePulse,     ms: 22, name: "Eye Pulse",     fam: "Eye"       },
+  { fn: animCharge,       ms: 18, name: "Charge & Fire", fam: "Eye"       },
+  { fn: animScanner,      ms: 22, name: "Scanner",       fam: "Eye"       },
+  { fn: animAperture,     ms: 22, name: "Aperture",      fam: "Fragments" },
+  { fn: animChain,        ms: 25, name: "Fragment Chain",fam: "Fragments" },
+  { fn: animVortex,       ms: 22, name: "Vortex",        fam: "Spiral"    },
+  { fn: animRadar,        ms: 20, name: "Radar",         fam: "Spiral"    },
+  { fn: animBloom,        ms: 24, name: "Bloom",         fam: "Spiral"    },
+  { fn: animMatrix,       ms: 45, name: "Matrix Rain",   fam: "Glitch"    },
+  { fn: animGlitch,       ms: 70, name: "Glitch",        fam: "Glitch"    },
+  { fn: animBoot,         ms: 25, name: "Boot Sequence", fam: "Glitch"    },
+];
+</script>
+
+<script>
+"use strict";
+
+/* --- output pipeline: gamma -> brightness -> current limit ---------------- */
+let reqMA = 0, limited = false;
+const BUDGET = Math.floor((POWER_LIMIT_MA * 765) / 60);
+
+function pushFrame() {
+  const bright = BRIGHT_LEVELS[gBright];
+  let sum = 0;
+  for (let k = 0; k < N * 3; k++) { const v = scale8(GAMMA[fb[k]], bright); out[k] = v; sum += v; }
+  reqMA = sum * 60 / 765;
+  limited = sum > BUDGET;
+  if (limited) { const k = Math.floor((BUDGET * 256) / sum); for (let i = 0; i < N * 3; i++) out[i] = (out[i] * k) >> 8; }
+}
+
+/* --- on-badge readout, as in showFeedback() ------------------------------- */
+let gFeedback = 0, gFeedbackTo = 0;          // 0 none, 1 mode, 2 brightness
+function showFeedback() {
+  fbClear();
+  if (gFeedback === 2) {
+    const lit = Math.floor(((gBright + 1) * PERIM_COUNT) / BRIGHT_LEVELS.length);
+    for (let r = 0; r < lit; r++) fbSet(PERIM[r], 200, 230, 255);
+    fbFill(GRB_FIRST, N, 120, 150, 200);
+  } else {
+    // Perimeter order, so the count runs down the edge instead of turning off
+    // into a board's leg partway through.
+    for (let r = 0; r <= gMode && r < PERIM_COUNT; r++) fbSet(PERIM[r], 255, 140, 0);
+    fbAdd(CORNER_BR, 0, 0, 60); fbAdd(CORNER_BL, 0, 0, 60); fbAdd(CORNER_TOP, 0, 0, 60);
+    fbFill(GRB_FIRST, N, 90, 60, 0);
+  }
+}
+
+/* --- canvas --------------------------------------------------------------- */
+const cv = document.getElementById("cv"), ctx = cv.getContext("2d");
+const W = 1100, H = 1000;
+const halfW = 424, triH = halfW * TRI_ASPECT;
+const originX = W / 2, apexY = (H - triH) / 2, baseY = apexY + triH;
+const sx = nx => originX + nx * halfW;
+const sy = ny => baseY - ny * triH;
+
+const LED = [];
+for (let i = 0; i < N; i++) {
+  LED.push({ i, x: sx(pxX(i) / 100), y: sy(pxY(i) / 100),
+             pad: i < RING ? 10 : (i < 63 ? 12 : 8) });
+}
+const cenX = originX, cenY = sy(1 / 3);
+
+/* The board is static, so it is painted once into an offscreen canvas. */
+const board = document.createElement("canvas");
+board.width = W; board.height = H;
+(function paintBoard() {
+  const b = board.getContext("2d");
+  const tri = () => { b.beginPath(); b.moveTo(sx(0), sy(1)); b.lineTo(sx(1), sy(0)); b.lineTo(sx(-1), sy(0)); b.closePath(); };
+
+  const g = b.createLinearGradient(0, apexY, 0, baseY);
+  g.addColorStop(0, "#0f1714"); g.addColorStop(1, "#070c0a");
+  tri(); b.fillStyle = g; b.fill();
+  b.strokeStyle = "#28382f"; b.lineWidth = 2; b.stroke();
+
+  // The three boards, each a chevron wrapping one corner, pinwheeled together.
+  const tints = ["#0d1613", "#0a120f", "#101a16"];
+  for (let f = 0; f < FRAG_COUNT; f++) {
+    b.beginPath(); b.moveTo(cenX, cenY);
+    for (let k = 0; k < FRAG_LEN; k++) {
+      const l = LED[f * FRAG_LEN + k];
+      const dx = l.x - cenX, dy = l.y - cenY, m = Math.hypot(dx, dy) || 1;
+      b.lineTo(l.x + dx / m * 17, l.y + dy / m * 17);
+    }
+    b.closePath(); b.fillStyle = tints[f]; b.fill();
+  }
+  for (let f = 0; f < FRAG_COUNT; f++) {          // seams, three LEDs shy of each corner
+    const a = LED[(f * FRAG_LEN + RING - 1) % RING], c = LED[f * FRAG_LEN];
+    const mx = (a.x + c.x) / 2, my = (a.y + c.y) / 2;
+    const dx = mx - cenX, dy = my - cenY, m = Math.hypot(dx, dy) || 1;
+    b.beginPath();
+    b.moveTo(cenX + dx / m * 46, cenY + dy / m * 46);
+    b.lineTo(mx + dx / m * 15, my + dy / m * 15);
+    b.strokeStyle = "#2e4238"; b.lineWidth = 1.5; b.stroke();
+  }
+
+  b.save(); b.translate(originX, cenY); b.scale(0.94, 0.94); b.translate(-originX, -cenY);
+  tri(); b.strokeStyle = "#1a271f"; b.lineWidth = 1; b.stroke();
+  b.restore();
+
+  // The mandala. It is wider than the triangle it sits in and breaks past both
+  // slanted edges, which is why the badge outline is not a plain triangle.
+  const ex = sx(0), ey = sy(0.40), mr = halfW * 0.772;
+  b.strokeStyle = "#1d2b23"; b.lineWidth = 1.5;
+  for (const k of [1, 0.90, 0.62, 0.55]) { b.beginPath(); b.arc(ex, ey, mr * k, 0, 7); b.stroke(); }
+
+  // Silkscreen eye, drawn around LEDs 60-62 the way it sits on the board.
+  const eex = sx(0), eey = sy(EYE_CY / 100), ew = halfW * 0.40, eh = ew * 0.30;
+  b.strokeStyle = "#2b3d31"; b.lineWidth = 2;
+  b.beginPath();
+  b.moveTo(eex - ew, eey); b.quadraticCurveTo(eex, eey - eh * 2.1, eex + ew, eey);
+  b.quadraticCurveTo(eex, eey + eh * 2.1, eex - ew, eey);
+  b.stroke();
+  b.beginPath(); b.ellipse(eex, eey, eh * 0.34, eh * 0.95, 0, 0, 7); b.stroke();
+
+  // Solder pads, so an unlit LED is still a visible component.
+  for (const l of LED) {
+    b.beginPath(); b.arc(l.x, l.y, l.pad, 0, 7);
+    b.fillStyle = "#0b100d"; b.fill();
+    b.strokeStyle = l.i >= GRB_FIRST ? "#4a3d1c" : "#26382f";
+    b.lineWidth = 1.4; b.stroke();
+  }
+})();
+
+let showIdx = false, showPaths = false, hoverLED = -1;
+
+function draw() {
+  ctx.clearRect(0, 0, W, H);
+  ctx.drawImage(board, 0, 0);
+
+  ctx.globalCompositeOperation = "lighter";
+  for (let i = 0; i < N; i++) {
+    const r = out[i * 3], g = out[i * 3 + 1], b = out[i * 3 + 2];
+    const lin = Math.max(r, g, b) / 255;
+    if (lin < 0.004) continue;
+    // LED emission is linear in PWM; the display is not. Undo the screen's
+    // gamma so a dim pixel here looks as dim as it will on the badge.
+    const sr = (255 * Math.pow(r / 255, 1 / 2.2)) | 0;
+    const sg = (255 * Math.pow(g / 255, 1 / 2.2)) | 0;
+    const sb = (255 * Math.pow(b / 255, 1 / 2.2)) | 0;
+    const { x, y, pad } = LED[i];
+
+    // 63 and 64 are aimed down into the white of the eye, so they throw a broad
+    // pool of light below themselves instead of reading as points.
+    if (i === TOP_L || i === TOP_R) {
+      ctx.save();
+      ctx.translate(x, y + pad * 4.2);
+      ctx.scale(1.35, 1.0);
+      const wr = pad * (5 + 9 * Math.sqrt(lin));
+      const wg = ctx.createRadialGradient(0, 0, 0, 0, 0, wr);
+      wg.addColorStop(0, "rgba(" + sr + "," + sg + "," + sb + ",0.30)");
+      wg.addColorStop(0.45, "rgba(" + sr + "," + sg + "," + sb + ",0.10)");
+      wg.addColorStop(1, "rgba(" + sr + "," + sg + "," + sb + ",0)");
+      ctx.fillStyle = wg;
+      ctx.beginPath(); ctx.arc(0, 0, wr, 0, 7); ctx.fill();
+      ctx.restore();
+    }
+
+    const rad = pad * (2.0 + 7 * Math.sqrt(lin));
+    const gr = ctx.createRadialGradient(x, y, 0, x, y, rad);
+    gr.addColorStop(0, "rgba(" + sr + "," + sg + "," + sb + ",0.50)");
+    gr.addColorStop(0.28, "rgba(" + sr + "," + sg + "," + sb + ",0.15)");
+    gr.addColorStop(1, "rgba(" + sr + "," + sg + "," + sb + ",0)");
+    ctx.fillStyle = gr;
+    ctx.beginPath(); ctx.arc(x, y, rad, 0, 7); ctx.fill();
+    ctx.fillStyle = "rgb(" + sr + "," + sg + "," + sb + ")";
+    ctx.beginPath(); ctx.arc(x, y, pad * 0.6, 0, 7); ctx.fill();
+  }
+  ctx.globalCompositeOperation = "source-over";
+
+  if (showPaths) {
+    const cols = ["#e0913a", "#3ac8b0", "#8f86e8"];
+    ctx.lineWidth = 2.5; ctx.lineJoin = "round";
+    for (let f = 0; f < FRAG_COUNT; f++) {
+      ctx.strokeStyle = cols[f];
+      ctx.beginPath();
+      for (let k = 0; k < FRAG_LEN; k++) {
+        const l = LED[f * FRAG_LEN + k];
+        if (k === 0) ctx.moveTo(l.x, l.y); else ctx.lineTo(l.x, l.y);
+      }
+      ctx.stroke();
+      const st = LED[f * FRAG_LEN];                        // DIN end of this board
+      ctx.fillStyle = cols[f];
+      ctx.beginPath(); ctx.arc(st.x, st.y, 7, 0, 7); ctx.fill();
+    }
+  }
+
+  if (showIdx) {
+    ctx.font = "500 15px 'IBM Plex Mono', monospace";
+    ctx.textAlign = "center"; ctx.textBaseline = "middle";
+    for (const l of LED) {
+      const dx = l.x - cenX, dy = l.y - cenY, m = Math.hypot(dx, dy) || 1;
+      const off = l.pad + 15;
+      ctx.fillStyle = l.i >= GRB_FIRST ? "#c9a227" : "#6d7d72";
+      ctx.fillText(String(l.i), l.x + dx / m * off, l.y + dy / m * off);
+    }
+  }
+  if (hoverLED >= 0) {
+    const l = LED[hoverLED];
+    ctx.strokeStyle = "#c9a227"; ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.arc(l.x, l.y, l.pad + 6, 0, 7); ctx.stroke();
+  }
+}
+
+/* --- mode / brightness ---------------------------------------------------- */
+function setMode(m, fromBadge) {
+  gMode = ((m % ANIMS.length) + ANIMS.length) % ANIMS.length;
+  gFrame = 0; fbClear(); scratch.fill(0);
+  for (const k in st) delete st[k];
+  if (fromBadge) { gFeedback = 1; gFeedbackTo = now + 400; }
+  syncMode();
+}
+function cycleBrightness() {
+  gBright = (gBright + 1) % BRIGHT_LEVELS.length;
+  gFeedback = 2; gFeedbackTo = now + 350;
+  syncBright();
+}
+
+/* --- UI ------------------------------------------------------------------- */
+const $ = id => document.getElementById(id);
+const animList = $("animList"), stepsEl = $("steps");
+const rowEls = [];
+
+let lastFam = null;
+ANIMS.forEach((a, i) => {
+  if (a.fam !== lastFam) {
+    const h = document.createElement("div");
+    h.className = "fam"; h.textContent = a.fam; animList.appendChild(h);
+    lastFam = a.fam;
+  }
+  const btn = document.createElement("button");
+  btn.className = "anim"; btn.type = "button";
+  btn.innerHTML = '<span class="n">' + String(i).padStart(2, "0") + '</span>' +
+                  '<span>' + a.name.replace("&", "&amp;") + '</span>' +
+                  '<span class="ms">' + a.ms + 'ms</span>';
+  btn.addEventListener("click", () => setMode(i, false));
+  animList.appendChild(btn);
+  rowEls.push(btn);
+});
+
+BRIGHT_LEVELS.forEach((lv, i) => {
+  const b = document.createElement("button");
+  b.className = "step"; b.type = "button"; b.textContent = lv;
+  b.setAttribute("aria-label", "Brightness level " + (i + 1) + ", value " + lv);
+  b.addEventListener("click", () => { gBright = i; syncBright(); });
+  stepsEl.appendChild(b);
+});
+
+function syncMode() {
+  rowEls.forEach((el, i) => el.setAttribute("aria-current", i === gMode ? "true" : "false"));
+  $("npName").textContent = ANIMS[gMode].name;
+  $("npFam").textContent = ANIMS[gMode].fam.toLowerCase() + " · " + ANIMS[gMode].ms + "ms";
+  const el = rowEls[gMode];
+  if (el) el.scrollIntoView({ block: "nearest" });
+}
+function syncBright() {
+  [...stepsEl.children].forEach((el, i) => el.setAttribute("aria-pressed", i === gBright ? "true" : "false"));
+  $("brOut").textContent = BRIGHT_LEVELS[gBright] + " / 255";
+}
+
+let playing = true, speed = 1;
+$("playBtn").addEventListener("click", e => {
+  playing = !playing;
+  e.currentTarget.textContent = playing ? "Pause" : "Play";
+  e.currentTarget.classList.toggle("pressed", !playing);
+});
+$("spd").addEventListener("input", e => {
+  speed = e.target.value / 100;
+  $("spdOut").textContent = speed.toFixed(2) + "×";
+});
+$("idx").addEventListener("change", e => { showIdx = e.target.checked; draw(); });
+$("paths").addEventListener("change", e => { showPaths = e.target.checked; draw(); });
+
+/* Emulated badge button, running the firmware's own thresholds against real
+   time so the hold-to-repeat feels the way it will in your hand. */
+const badgeBtn = $("badgeBtn");
+let btnDown = false, btnDownAt = 0, btnLongFired = false, btnNextRep = 0;
+function pressStart() {
+  btnDown = true; btnDownAt = performance.now(); btnLongFired = false;
+  badgeBtn.classList.add("pressed");
+}
+function pressEnd() {
+  if (!btnDown) return;
+  if (!btnLongFired) setMode(gMode + 1, true);
+  btnDown = false; badgeBtn.classList.remove("pressed");
+}
+badgeBtn.addEventListener("pointerdown", e => { e.preventDefault(); pressStart(); });
+addEventListener("pointerup", pressEnd);
+addEventListener("pointercancel", pressEnd);
+badgeBtn.addEventListener("keydown", e => { if ((e.key === " " || e.key === "Enter") && !e.repeat) { e.preventDefault(); pressStart(); } });
+badgeBtn.addEventListener("keyup", e => { if (e.key === " " || e.key === "Enter") { e.preventDefault(); pressEnd(); } });
+
+function serviceButton(ts) {
+  if (!btnDown) return;
+  if (!btnLongFired && ts - btnDownAt >= BTN_LONG_MS) {
+    btnLongFired = true; cycleBrightness(); btnNextRep = ts + BTN_REPEAT_MS;
+  } else if (btnLongFired && ts >= btnNextRep) {
+    cycleBrightness(); btnNextRep = ts + BTN_REPEAT_MS;
+  }
+}
+
+addEventListener("keydown", e => {
+  if (e.target instanceof HTMLInputElement || e.target === badgeBtn) return;
+  if (e.key === "ArrowRight") { e.preventDefault(); setMode(gMode + 1, false); }
+  else if (e.key === "ArrowLeft") { e.preventDefault(); setMode(gMode - 1, false); }
+});
+
+/* Hover probe: strand index, live RGB, and which byte-order run it is in. */
+const probe = $("probe");
+cv.addEventListener("pointermove", e => {
+  const r = cv.getBoundingClientRect();
+  const x = (e.clientX - r.left) * (W / r.width), y = (e.clientY - r.top) * (H / r.height);
+  let best = -1, bd = 34 * 34;
+  for (const l of LED) { const d = (l.x - x) ** 2 + (l.y - y) ** 2; if (d < bd) { bd = d; best = l.i; } }
+  hoverLED = best;
+  if (best < 0) { probe.classList.remove("on"); return; }
+  const k = best * 3;
+  const where = best >= GRB_FIRST ? "GRB run" :
+                "board " + (fragOf(best) + 1) + "\u00b7" + posInFrag(best) + " " +
+                (best === CORNER_BR ? "corner BR" : best === CORNER_BL ? "corner BL" :
+                 best === CORNER_TOP ? "corner apex" : "r=" + ringPos(best));
+  probe.innerHTML = "<b>#" + String(best).padStart(2, "0") + "</b> &nbsp;" + where +
+                    " &nbsp;&nbsp;R " + out[k] + " &nbsp;G " + out[k + 1] + " &nbsp;B " + out[k + 2];
+  probe.classList.add("on");
+});
+cv.addEventListener("pointerleave", () => { hoverLED = -1; probe.classList.remove("on"); });
+
+/* --- telemetry ------------------------------------------------------------ */
+const mAEl = $("mA"), fpsEl = $("fps"), drawBar = $("drawBar"), drawFill = drawBar.firstElementChild;
+let fpsCount = 0, fpsAt = 0;
+function updateTelemetry(ts) {
+  if (ts - fpsAt < 250) return;
+  const fps = Math.round(fpsCount * 1000 / (ts - fpsAt));
+  fpsCount = 0; fpsAt = ts;
+  fpsEl.textContent = fps + " fps";
+  mAEl.textContent = Math.round(reqMA) + " mA";
+  mAEl.classList.toggle("hot", limited);
+  drawBar.classList.toggle("hot", limited);
+  drawFill.style.width = Math.min(100, reqMA / POWER_LIMIT_MA * 100).toFixed(1) + "%";
+}
+
+/* --- main loop (mirrors loop() in the sketch) ----------------------------- */
+let lastReal = 0, lastFrameAt = 0;
+function tick(ts) {
+  requestAnimationFrame(tick);
+  if (!lastReal) { lastReal = ts; fpsAt = ts; }
+  let dt = ts - lastReal; lastReal = ts;
+  if (dt > 120) dt = 120;
+
+  serviceButton(ts);
+  if (playing) now += dt * speed;
+
+  const a = ANIMS[gMode];
+  if (now - lastFrameAt >= a.ms) {
+    lastFrameAt = now;
+    if (gFeedback) {
+      if (now >= gFeedbackTo) { gFeedback = 0; fbClear(); gFrame = 0; }
+      else showFeedback();
+    }
+    if (!gFeedback) { a.fn(); gFrame++; }
+    pushFrame();
+    draw();
+    fpsCount++;
+  }
+  updateTelemetry(ts);
+}
+
+syncMode(); syncBright();
+ANIMS[gMode].fn(); gFrame++; pushFrame(); draw();   // render one frame at rest
+requestAnimationFrame(tick);
+</script>
