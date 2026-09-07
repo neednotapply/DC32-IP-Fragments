@@ -287,7 +287,7 @@
 
 const N = 65, RING = 60, GRB_FIRST = 60;
 const CORNER_BR = 3, CORNER_BL = 23, CORNER_TOP = 43;
-const EYE_C = 60, EYE_L = 61, EYE_R = 62, TOP_L = 63, TOP_R = 64;
+const EYE_C = 60, EYE_R = 61, EYE_L = 62, TOP_L = 63, TOP_R = 64;   // 61 is the RIGHT one
 const BRIGHT_MIN = 4, BRIGHT_MAX = 160, BRIGHT_RAMP_MS = 40;
 
 /* The house colour is a selectable hue. INK_SAT is what keeps it greenback and
@@ -405,7 +405,7 @@ function spillTail(headP, r, g, b) {
 
 /* --- geometry ------------------------------------------------------------- */
 const ringX = new Int8Array(RING), ringY = new Int8Array(RING);
-const auxX = [0, -32, 32, -29, 28], auxY = [41, 41, 41, 50, 51];
+const auxX = [0, 32, -32, -29, 28], auxY = [41, 41, 41, 50, 51];   // by strand index 60..64
 
 /* Polar coordinates about the eye, for every LED including the five inside.
    The badge has real radial structure -- outline at the rim, the twelve tail

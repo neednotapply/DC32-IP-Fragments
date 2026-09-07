@@ -77,9 +77,15 @@
 #define CORNER_BL         23    // bottom-left corner   (ring r = 20)
 #define CORNER_TOP        43    // apex                 (ring r = 40)
 
-#define EYE_C             60    // eye, center
-#define EYE_L             61    // eye, left
-#define EYE_R             62    // eye, right
+#define EYE_C             60    // eye, centre
+// The strand reaches the RIGHT of the eye before the left. The original sketch
+// labelled 61 as left, and that was wrong the same way its "top of board" was:
+// with 61 driven as the left, Radar's beam reached the two sides in the wrong
+// order and the eye read mirrored against the simulator. Both halves of the
+// correction have to agree -- this naming, and auxX below, which says where the
+// model thinks each index physically sits.
+#define EYE_R             61    // eye, right
+#define EYE_L             62    // eye, left
 #define TOP_L             63    // above the eye, aimed DOWN into the white
 #define TOP_R             64    // above the eye, aimed DOWN into the white
 
@@ -392,7 +398,8 @@ uint8_t polA[PIXEL_COUNT];      // angle about the eye, 0..255 is one full turn
 // ends of the eye graphic, much wider apart than the pupil; 63/64 are not up
 // by the apex at all despite the "top of board" label in the original sketch --
 // they flank the eye from above, inside the mandala.
-const int8_t auxX[5] = {   0, -32,  32, -29,  28 };   // EYE_C, EYE_L, EYE_R, TOP_L, TOP_R
+// Indexed by strand position, 60..64 -- not by name. 61 sits to the right.
+const int8_t auxX[5] = {   0,  32, -32, -29,  28 };   // 60, 61(R), 62(L), 63, 64
 const int8_t auxY[5] = {  41,  41,  41,  50,  51 };
 
 #define EYE_CX  0

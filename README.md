@@ -323,10 +323,19 @@ Increasing strand index runs clockwise from the bottom-right corner with the
 apex up. Two things remain estimates, both a few lines near the top of the
 sketch:
 
-- `auxX` / `auxY` place the eye (60–62) and the pair above it (63–64). These
-  are measured off photographs of the lit badge — note that 63/64 are *not*
-  near the apex despite the original's "top of board" comment; they flank the
-  eye from above, inside the mandala.
+- `auxX` / `auxY` place the eye (60–62) and the pair above it (63–64), indexed
+  by strand position rather than by name. These are measured off photographs of
+  the lit badge — note that 63/64 are *not* near the apex despite the original's
+  "top of board" comment; they flank the eye from above, inside the mandala.
+- **The strand reaches the right of the eye before the left.** The original
+  labelled 61 as left and that was wrong: driven that way, Radar's beam reached
+  the two sides in the wrong order and the eye read mirrored against the
+  simulator. `EYE_R` is 61 and `EYE_L` is 62. Both halves have to agree — the
+  naming *and* `auxX`, which is what tells the geometry where each index sits.
+- 63/64 are the same class of assumption and have not been confirmed. If the top
+  pair ever looks mirrored, swap `auxX[3]` and `auxX[4]`. It is much less visible
+  than the eye pair was, since the two sit close together and both wash the same
+  sclera.
 
 **There is a blue power LED behind the eye, and it is always on.** So "off" is
 not a colour the badge can show there — an eye left dark does not read as dark,
