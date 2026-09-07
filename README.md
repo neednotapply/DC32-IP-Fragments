@@ -96,9 +96,15 @@ and a hold after the window has expired falls through to brightness.
 While you are navigating — stepping animations, ramping brightness, ramping
 colour — the whole badge sits lit in the house ink at the set brightness, so a
 glance tells you what it is configured to. The animation number rides on top of
-that as a brighter run in the same ink: same hue so the colour still reads, about
-three and a half times the output so the count is still countable. `NAV_FILL`
-and `NAV_MARK` set the two levels.
+that in the **opposite hue**, saturated harder than the ink.
+
+A brighter shade of the ink does not survive the diffuser. With the whole board
+lit, neighbouring LEDs blend into each other and a brightness step smears across
+the boundary until the count is hard to read; opposite hues stay separate however
+much they bleed. Measured after dividing luminance out, the fill and marker keep
+4.1–8.2 of chroma separation right round the wheel — green against violet, cyan
+against red, blue against yellow. `INK_SAT` and `MARK_SAT` set the two
+saturations, `NAV_FILL` and `NAV_MARK` the two levels.
 
 Both give a readout on the badge itself: a bar around the perimeter for
 brightness, or a count of lit pixels from the bottom-right corner for the
@@ -146,7 +152,10 @@ at the top, so nothing else needs touching.
 | 13 | Radar | Spiral — one beam sweeping, with a decaying wake |
 | 14 | Matrix Rain | Glitch — the badge as a wall, drops falling through it |
 
-Both spirals turn clockwise seen from the front.
+Everything that goes round the outline turns clockwise seen from the front —
+both spirals, plus Comet, Drift and Rainbow. Reversing a gradient means negating
+the *position* term rather than time: flipping time on Rainbow would run the hue
+wheel backwards instead of moving the band the other way.
 
 Both spirals turn clockwise seen from the front.
 

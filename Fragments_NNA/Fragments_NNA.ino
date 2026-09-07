@@ -136,14 +136,28 @@
 #define DEFAULT_HUE 18900       // greenback green
 #define HUE_STEP      900       // per ramp step; a full wheel is ~73 steps
 
+// The navigation marker is drawn in the OPPOSITE hue rather than a brighter
+// shade of the ink. With the whole board lit the diffuser blends neighbouring
+// LEDs, and a brightness step smears across that boundary until the count is
+// hard to read; opposite hues stay separate however much they bleed into each
+// other. It is saturated harder than the ink too -- the ink is deliberately
+// desaturated to stay greenback, and the marker has no such job.
+#define MARK_SAT      215
+
 uint16_t gHue    = DEFAULT_HUE;
 uint8_t  inkR = 124, inkG = 255, inkB = 124;
+uint8_t  markR, markG, markB;
 
 void updateInk() {
   uint32_t c = Adafruit_NeoPixel::ColorHSV(gHue, INK_SAT, 255);
   inkR = (c >> 16) & 0xFF;
   inkG = (c >>  8) & 0xFF;
   inkB =  c        & 0xFF;
+
+  uint32_t m = Adafruit_NeoPixel::ColorHSV((uint16_t)(gHue + 32768), MARK_SAT, 255);
+  markR = (m >> 16) & 0xFF;
+  markG = (m >>  8) & 0xFF;
+  markB =  m        & 0xFF;
 }
 
 #define USE_GAMMA          1    // gamma-correct output; fades look far better
@@ -774,14 +788,17 @@ void animCollide() {
 void animRainbow() {
   uint16_t base = (uint16_t)(gNow * 14);
 
+  // The position term runs against the base, so the band travels clockwise like
+  // Drift and the spirals. Negating position rather than time is what reverses a
+  // gradient: flipping time would just run the hue wheel backwards instead.
   for (uint8_t i = 0; i < PERIM_COUNT; i++)
-    fbSetHSV(PERIM[i], base + (uint16_t)i * (65536UL / PERIM_COUNT), 255, 200);
+    fbSetHSV(PERIM[i], base - (uint16_t)i * (65536UL / PERIM_COUNT), 255, 200);
   // Carry the sweep on down each board's tail from where it attaches, so the
   // inner LEDs read as part of the same band rather than a separate colour.
   for (uint8_t f = 0; f < FRAG_COUNT; f++)
     for (uint8_t k = 0; k < 4; k++)
       fbSetHSV((uint8_t)(f * FRAG_LEN + 16 + k),
-               base + (uint16_t)(f * 16 + 12 + k) * (65536UL / PERIM_COUNT), 255, 150);
+               base - (uint16_t)(f * 16 + 12 + k) * (65536UL / PERIM_COUNT), 255, 150);
 
   fbSetHSV(EYE_C, base + 32768, 40, 220);
   fbSetHSV(EYE_L, base,          255, 170);
@@ -1264,12 +1281,12 @@ uint32_t gFeedbackTo = 0;
 // a glance tells you what it is actually configured to. The old readout drew a
 // few markers on a dark board, which hid the two things you were adjusting.
 //
-// The animation number rides on top of that as a brighter run in the same ink.
-// Same hue, so the colour still reads; roughly three and a half times the
-// output, so the count is still countable against the fill.
+// The animation number rides on top of that in the opposite hue, so it reads
+// against the fill no matter how bright the fill gets or how much the diffuser
+// blends one LED into the next.
 #define NAV_FILL     150
 #define NAV_FILL_EYE 190
-#define NAV_MARK     255
+#define NAV_MARK     235
 
 void showFeedback() {
   fbClear();
@@ -1280,7 +1297,7 @@ void showFeedback() {
     // Counted up from the bottom-right corner in perimeter order, so the run
     // goes down the edge rather than turning off into a board's leg.
     for (uint8_t r = 0; r <= gMode && r < PERIM_COUNT; r++)
-      fbTint(PERIM[r], inkR, inkG, inkB, NAV_MARK);
+      fbTint(PERIM[r], markR, markG, markB, NAV_MARK);
   }
 }
 

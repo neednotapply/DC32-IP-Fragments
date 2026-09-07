@@ -295,11 +295,18 @@ const BRIGHT_MIN = 4, BRIGHT_MAX = 160, BRIGHT_RAMP_MS = 40;
    gamma has crushed the minor channels. There is deliberately no paler variant --
    anything desaturated enough to sit between the ink and white just reads white
    on an emissive LED. The eye stands apart by being brighter. */
-const INK_SAT = 131, DEFAULT_HUE = 18900, HUE_STEP = 900;
+/* The navigation marker uses the OPPOSITE hue rather than a brighter shade of
+   the ink: with the whole board lit the diffuser blends neighbours and a
+   brightness step smears, while opposite hues stay separate. Saturated harder
+   than the ink, which is kept desaturated to stay greenback. */
+const INK_SAT = 131, MARK_SAT = 215, DEFAULT_HUE = 18900, HUE_STEP = 900;
 let gHue = DEFAULT_HUE, inkR = 159, inkG = 255, inkB = 124;
+let markR = 255, markG = 124, markB = 255;
 function updateInk() {
   const c = ColorHSV(gHue, INK_SAT, 255);
   inkR = (c >> 16) & 255; inkG = (c >> 8) & 255; inkB = c & 255;
+  const m = ColorHSV(u16(gHue + 32768), MARK_SAT, 255);
+  markR = (m >> 16) & 255; markG = (m >> 8) & 255; markB = m & 255;
 }
 function rampHue() {
   gHue = u16(gHue + HUE_STEP); updateInk(); syncHue();
@@ -648,12 +655,13 @@ function animCollide() {
 
 function animRainbow() {
   const base = u16(Math.floor(now * 14));
+  // Position runs against the base so the band travels clockwise, like Drift.
   for (let i = 0; i < PERIM_COUNT; i++)
-    fbSetHSV(PERIM[i], u16(base + i * Math.floor(65536 / PERIM_COUNT)), 255, 200);
+    fbSetHSV(PERIM[i], u16(base - i * Math.floor(65536 / PERIM_COUNT)), 255, 200);
   for (let f = 0; f < FRAG_COUNT; f++)
     for (let k = 0; k < 4; k++)
       fbSetHSV(f * FRAG_LEN + 16 + k,
-               u16(base + (f * 16 + 12 + k) * Math.floor(65536 / PERIM_COUNT)), 255, 150);
+               u16(base - (f * 16 + 12 + k) * Math.floor(65536 / PERIM_COUNT)), 255, 150);
   fbSetHSV(EYE_C, u16(base + 32768), 40, 220);
   fbSetHSV(EYE_L, base, 255, 170);
   fbSetHSV(EYE_R, u16(base + 21845), 255, 170);
@@ -1026,7 +1034,7 @@ let gFeedback = 0, gFeedbackTo = 0;          // 0 none, 1 mode, 2 brightness
 // While navigating, the whole badge sits lit in the house ink at the set
 // brightness, so a glance shows what it is configured to. The animation number
 // rides on top as a brighter run in the same ink.
-const NAV_FILL = 150, NAV_FILL_EYE = 190, NAV_MARK = 255;
+const NAV_FILL = 150, NAV_FILL_EYE = 190, NAV_MARK = 235;
 function showFeedback() {
   fbClear();
   for (let i = 0; i < RING; i++) fbTint(i, inkR, inkG, inkB, NAV_FILL);
@@ -1035,7 +1043,7 @@ function showFeedback() {
     // Perimeter order, so the count runs down the edge instead of turning off
     // into a board's leg partway through.
     for (let r = 0; r <= gMode && r < PERIM_COUNT; r++)
-      fbTint(PERIM[r], inkR, inkG, inkB, NAV_MARK);
+      fbTint(PERIM[r], markR, markG, markB, NAV_MARK);
   }
 }
 
