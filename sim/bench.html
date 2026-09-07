@@ -278,7 +278,7 @@
 
   <footer>
     <span>DC32 &middot; Illuminati Party&reg; &ldquo;Fragments&rdquo;</span>
-    <span>19 animations &middot; 5 brightness levels</span>
+    <span>16 animations &middot; 5 brightness levels</span>
     <span>Short press: next &middot; Hold: brightness</span>
   </footer>
 </div>
@@ -344,7 +344,7 @@ const posInFrag = i => i % FRAG_LEN;
    it dives off the outline into each board's tail and jumps back, which is
    right for Fragment Chain and wrong for anything that reads as motion along an
    edge. Perimeter order (PERIM) is the 48 outline LEDs in the order the eye
-   walks them; chases belong there. Position (ringX/ringY/ringDist) ignores
+   walks them; chases belong there. Position (ringX/ringY, polR/polA) ignores
    ordering and treats the badge as a screen. */
 const PERIM_COUNT = 48;
 const PERIM = new Uint8Array(PERIM_COUNT);
@@ -387,7 +387,7 @@ function spillTail(headP, r, g, b) {
 }
 
 /* --- geometry ------------------------------------------------------------- */
-const ringX = new Int8Array(RING), ringY = new Int8Array(RING), ringDist = new Uint8Array(RING);
+const ringX = new Int8Array(RING), ringY = new Int8Array(RING);
 const auxX = [0, -32, 32, -29, 28], auxY = [41, 41, 41, 50, 51];
 
 /* Polar coordinates about the eye, for every LED including the five inside.
@@ -440,7 +440,6 @@ const TAIL_A1 = -60, TAIL_A2 = -60, EDGE_STEPS = 16;
   for (let i = 0; i < RING; i++) {
     ringX[i] = Math.round(px[i] * 100);
     ringY[i] = Math.round(py[i] / TRI_ASPECT * 100);
-    ringDist[i] = Math.min(255, Math.floor(Math.hypot(px[i] - eyeX, py[i] - eyeY) * 205));
   }
   for (let i = 0; i < N; i++) {
     const x = i < RING ? px[i] : auxX[i - GRB_FIRST] / 100;
@@ -500,7 +499,13 @@ function animBreathe() {
 
 function animDrift() {
   const base = u16(Math.floor(now * 3));
-  for (let i = 0; i < RING; i++) fbSetHSV(i, u16(base + ringPos(i) * 240), 235, 120);
+  // Perimeter order, and the gradient runs against the base so the band travels
+  // the other way round the badge.
+  for (let i = 0; i < PERIM_COUNT; i++)
+    fbSetHSV(PERIM[i], u16(base - i * 300), 235, 120);
+  for (let f = 0; f < FRAG_COUNT; f++)
+    for (let k = 0; k < 4; k++)
+      fbSetHSV(f * FRAG_LEN + 16 + k, u16(base - (f * 16 + 12 + k) * 300), 235, 105);
   const eyeHue = u16(base + 32768);
   const puls = 150 + scale8(sin8(t8(22)), 105);
   fbSetHSV(EYE_C, eyeHue, 60, puls);
@@ -517,17 +522,6 @@ function animPlasma() {
     const a = sin8(x + t * 2), b = sin8(y * 2 - t * 3), c = sin8((x + y) + t);
     const v = Math.floor((a + b + c) / 3);
     fbSetHSV(i, u16(v * 200 + u16(Math.floor(now))), 220, 45 + scale8(v, 190));
-  }
-}
-
-function animCandle() {
-  if (gFrame === 0) { st.global = 180; scratch.fill(150); }
-  st.global = Math.min(235, Math.max(110, st.global + rnd(-18, 19)));
-  for (let i = 0; i < N; i++) {
-    scratch[i] = Math.min(200, Math.max(100, scratch[i] + rnd(-10, 11)));
-    let v = scale8(st.global, scratch[i]);
-    if (i >= GRB_FIRST) v = qadd8(v, 45);
-    fbSet(i, v, scale8(v, 105), scale8(v, 12));
   }
 }
 
@@ -551,30 +545,91 @@ function animComet() {
 }
 
 function animCollide() {
-  if (gFrame === 0) { st.a = 0; st.b = 24 * 16; st.flash = 0; fbClear(); }
-  fbFadeRing(224);
-  st.a = (st.a + 8) % (PERIM_COUNT * 16);
-  st.b = (st.b + PERIM_COUNT * 16 - 8) % (PERIM_COUNT * 16);
-  perimPoint(st.a, 255, 110, 10);
-  perimPoint(st.b, 10, 170, 255);
-  spillTail(st.a, 150, 65, 6);
-  spillTail(st.b, 6, 100, 150);
-  const ga = st.a >> 4, gb = st.b >> 4;
-  if (perimGap(ga, gb) <= 1) st.flash = 255;
+  // Travellers at their own speeds, so they never meet twice in the same place.
+  // Passing a tail anchor one may turn off down the leg -- four LEDs in, turn
+  // round, four back out -- while the others carry straight on past it.
+  if (gFrame === 0) {
+    fbClear(); st.flash = 0; st.flashAt = 0;
+    st.pos = []; st.dir = []; st.spd = []; st.leg = []; st.legProg = []; st.cool = []; st.hue = [];
+    for (let k = 0; k < TRAVELERS; k++) {
+      st.pos[k] = rnd(PERIM_COUNT * 16);
+      st.dir[k] = k ? -1 : 1;                      // head on, so they actually meet
+      st.spd[k] = 3 + k * 3 + rnd(0, 3);
+      st.leg[k] = 255; st.legProg[k] = 0; st.cool[k] = 0;
+    }
+    st.hue[0] = rnd(65536);
+    st.hue[1] = u16(st.hue[0] + 30000);            // kept well apart from each other
+    st.wasHit = false;
+  }
+
+  fbFadeRing(222);
+
+  for (let k = 0; k < TRAVELERS; k++) {
+    st.hue[k] = u16(st.hue[k] + 8);              // barely drifts; the jump is the event
+    const c = ColorHSV(st.hue[k], 205, 255);
+    const r = (c >> 16) & 255, g = (c >> 8) & 255, b = c & 255;
+    if (st.cool[k]) st.cool[k]--;
+
+    if (st.leg[k] !== 255) {                       // off the line, down a leg
+      st.legProg[k] += st.spd[k];
+      if (st.legProg[k] < 128) {
+        const depth = st.legProg[k] < 64 ? (st.legProg[k] >> 4)
+                                         : 3 - ((st.legProg[k] - 64) >> 4);
+        fbAdd(st.leg[k] * FRAG_LEN + 16 + depth, r, g, b);
+        continue;                                  // its place on the line is held
+      }
+      st.leg[k] = 255; st.cool[k] = 24;
+    }
+
+    st.pos[k] = (st.pos[k] + PERIM_COUNT * 16 + st.dir[k] * st.spd[k]) % (PERIM_COUNT * 16);
+    perimPoint(st.pos[k], r, g, b);
+
+    if (!st.cool[k]) {
+      const here = st.pos[k] >> 4;
+      for (let f = 0; f < FRAG_COUNT; f++)
+        if (here === f * 16 + 12 && rnd(100) < 25) { st.leg[k] = f; st.legProg[k] = 0; break; }
+    }
+  }
+
+  let hit = false;
+  for (let k = 0; k < TRAVELERS; k++)
+    for (let j = k + 1; j < TRAVELERS; j++)
+      if (st.leg[k] === 255 && st.leg[j] === 255 &&
+          perimGap(st.pos[k] >> 4, st.pos[j] >> 4) <= 1) {
+        hit = true; st.flashAt = st.pos[k] >> 4;
+      }
+  if (hit && !st.wasHit) {                         // a fresh one, not the same one held
+    st.flash = 255;
+    st.hue[0] = u16(st.hue[0] + rnd(13000, 28000));
+    st.hue[1] = u16(st.hue[0] + 26000 + rnd(0, 12000));
+  }
+  st.wasHit = hit;
+
   if (st.flash) {
     for (let d = -3; d <= 3; d++) {
       const w = scale8(st.flash, 255 - Math.abs(d) * 70);
-      fbAdd(PERIM[(ga + PERIM_COUNT + d) % PERIM_COUNT], w, w, w);
+      fbAdd(PERIM[(st.flashAt + PERIM_COUNT + d) % PERIM_COUNT], w, w, w);
     }
     st.flash = scale8(st.flash, 205);
   }
-  const e = qadd8(60, st.flash);
+
+  // The eye carries the pair that is running: one traveller's colour on each
+  // side, wash above it to match, so the two halves of the white glow in the
+  // two colours. The flash goes over the top and covers the swap.
+  for (let k = 0; k < 2; k++) {
+    const c = ColorHSV(st.hue[k], 210, 200);
+    const d = ColorHSV(st.hue[k], 190, 120);
+    const wf = scale8(st.flash, 205);
+    fbSet(k ? EYE_R : EYE_L, qadd8((c >> 16) & 255, st.flash),
+                             qadd8((c >>  8) & 255, st.flash),
+                             qadd8( c        & 255, st.flash));
+    fbSet(k ? TOP_R : TOP_L, qadd8((d >> 16) & 255, wf),
+                             qadd8((d >>  8) & 255, wf),
+                             qadd8( d        & 255, wf));
+  }
+
+  const e = qadd8(40, st.flash);
   fbSet(EYE_C, e, e, e);
-  fbSet(EYE_L, scale8(e, 130), scale8(e, 130), e);
-  fbSet(EYE_R, e, scale8(e, 130), scale8(e, 130));
-  const w = qadd8(32, st.flash);                     // the white catches the hit
-  fbSet(TOP_L, w, w, qadd8(w, 22));
-  fbSet(TOP_R, w, w, qadd8(w, 22));
 }
 
 function animRainbow() {
@@ -620,21 +675,6 @@ function animCorners() {
   fbSetHSV(EYE_R, hue, 200, scale8(e, 160));
   fbSetHSV(TOP_L, hue, 125, scale8(e, 195));
   fbSetHSV(TOP_R, hue, 125, scale8(e, 195));
-}
-
-/* --- eye-driven ----------------------------------------------------------- */
-function animEyePulse() {
-  const phase = t8(7), hue = u16(30000 + Math.floor(now / 2));
-  for (let i = 0; i < RING; i++) {
-    const w = sin8(ringDist[i] * 2 - phase);
-    fbSetHSV(i, hue, 210, 12 + scale8(sharpen(w), 210));
-  }
-  const beat = sin8(phase), e = 70 + scale8(beat, 185);
-  fbSetHSV(EYE_C, hue, 30, e);
-  fbSetHSV(EYE_L, hue, 150, scale8(e, 170));
-  fbSetHSV(EYE_R, hue, 150, scale8(e, 170));
-  fbSetHSV(TOP_L, hue, 85, 55 + scale8(beat, 200));
-  fbSetHSV(TOP_R, hue, 85, 55 + scale8(beat, 200));
 }
 
 function animCharge() {
@@ -809,24 +849,9 @@ function animRadar() {
   for (let i = 0; i < N; i++) fbAdd(i, 0, 7, 2);     // faint standing ground
 }
 
-function animBloom() {
-  const t = Math.floor(now / 11) & 255;
-  const hue = u16(8000 + Math.floor(now / 9));
-  for (let i = 0; i < N; i++) {
-    const v = sharpen(sin8(polA[i] * 2 - polR[i] + t));
-    const reach = 255 - scale8(polR[i], 150);        // thrown, so it thins out
-    fbSetHSV(i, u16(hue + polR[i] * 30), 215, 12 + scale8(scale8(v, reach), 225));
-  }
-  const core = 190 + scale8(sin8(t * 2), 65);        // the source sits above it
-  fbSet(EYE_C, core, scale8(core, 205), scale8(core, 130));
-  fbSet(EYE_L, scale8(core, 220), scale8(core, 150), scale8(core, 60));
-  fbSet(EYE_R, scale8(core, 220), scale8(core, 150), scale8(core, 60));
-  fbSet(TOP_L, core, scale8(core, 190), scale8(core, 110));
-  fbSet(TOP_R, core, scale8(core, 190), scale8(core, 110));
-}
-
 /* --- glitch / hacker ------------------------------------------------------ */
 const DROPS = 20, DROP_COL = 5, DROP_HEAD = 48, DROP_TAIL = 620;
+const TRAVELERS = 2;
 function animMatrix() {
   // The badge is a wall and the drops fall through it. Constant speed through
   // SPACE, not from LED to LED, so the gap between two lit LEDs is however long
@@ -840,9 +865,12 @@ function animMatrix() {
   // A faint field of glyphs behind the rain, so the wall is never a void.
   fbFill(0, RING, 0, 0, 0);
   for (let i = 0; i < RING; i++) {
-    if (rnd(100) < 4) scratch[i] = rnd(45, 130);
-    else              scratch[i] = scale8(scratch[i], 226);
-    fbAdd(i, 0, qadd8(scratch[i], 7), scale8(scratch[i], 20));
+    if (rnd(100) < 9) scratch[i] = rnd(140, 256);
+    else              scratch[i] = scale8(scratch[i], 230);
+    // Gamma against the brightness cap crushes anything under ~80 to zero at
+    // the LED, so the field is floored at 70 to make sure it actually arrives.
+    const g = 70 + scale8(scratch[i], 80);
+    fbAdd(i, 0, g, scale8(g, 20));
   }
 
   for (let d = 0; d < DROPS; d++) {
@@ -878,7 +906,7 @@ function animMatrix() {
     }
   }
 
-  const cursor = (Math.floor(now) % 900 < 550) ? 210 : 30;
+  const cursor = 32 + scale8(sin8(Math.floor(now / 8)), 200);   // breathes, not blinks
   fbSet(EYE_C, 0, cursor, scale8(cursor, 28));
   fbSet(EYE_L, 0, scale8(cursor, 90), 0);
   fbSet(EYE_R, 0, scale8(cursor, 90), 0);
@@ -966,19 +994,16 @@ const ANIMS = [
   { fn: animBreathe,      ms: 25, name: "Breathe",       fam: "Ambient"   },
   { fn: animDrift,        ms: 30, name: "Drift",         fam: "Ambient"   },
   { fn: animPlasma,       ms: 28, name: "Plasma",        fam: "Ambient"   },
-  { fn: animCandle,       ms: 55, name: "Candle",        fam: "Ambient"   },
   { fn: animComet,        ms: 18, name: "Comet",         fam: "Perimeter" },
   { fn: animCollide,      ms: 18, name: "Collide",       fam: "Perimeter" },
   { fn: animRainbow,      ms: 22, name: "Rainbow",       fam: "Perimeter" },
   { fn: animCorners,      ms: 45, name: "Corner Pulse",  fam: "Perimeter" },
-  { fn: animEyePulse,     ms: 22, name: "Eye Pulse",     fam: "Eye"       },
   { fn: animCharge,       ms: 18, name: "Charge & Fire", fam: "Eye"       },
   { fn: animScanner,      ms: 22, name: "Scanner",       fam: "Eye"       },
   { fn: animAperture,     ms: 22, name: "Aperture",      fam: "Fragments" },
   { fn: animChain,        ms: 25, name: "Fragment Chain",fam: "Fragments" },
   { fn: animVortex,       ms: 22, name: "Vortex",        fam: "Spiral"    },
   { fn: animRadar,        ms: 20, name: "Radar",         fam: "Spiral"    },
-  { fn: animBloom,        ms: 24, name: "Bloom",         fam: "Spiral"    },
   { fn: animMatrix,       ms: 45, name: "Matrix Rain",   fam: "Glitch"    },
   { fn: animGlitch,       ms: 70, name: "Glitch",        fam: "Glitch"    },
   { fn: animBoot,         ms: 25, name: "Boot Sequence", fam: "Glitch"    },

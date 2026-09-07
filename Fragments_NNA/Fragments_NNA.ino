@@ -43,7 +43,7 @@
  *  index runs BR -> BL -> apex -> BR: clockwise, apex up, viewed from the
  *  front. (Corner labels are taken from the original sketch's comments.)
  *
- *  buildGeometry() turns that into ringX / ringY / ringDist lookup tables, so
+ *  buildGeometry() turns that into ringX / ringY lookup tables, so
  *  animations can be written in space -- "sweep upward", "ripple out from the
  *  eye" -- instead of in raw strand indices.
  *
@@ -105,6 +105,20 @@ const uint8_t BRIGHT_LEVELS[] = { 12, 24, 45, 80, 130 };
 
 #define USE_GAMMA          1    // gamma-correct output; fades look far better
 #define GAMMA_EXP       2.2f    // see GAMMA[] below
+
+// This badge idles GPIO12 LOW and the button pulls it HIGH.
+//
+// GPIO12 is MTDI, an ESP32 strapping pin that has to be low at boot or the chip
+// sets VDD_SDIO to 1.8V and will not start from 3.3V flash. So the board carries
+// an external pull-down, and that pull-down beats the chip's ~45k internal
+// pull-up: with INPUT_PULLUP the pin reads LOW forever whether or not anyone is
+// touching the button.
+//
+// The original sketch assumed active-low, and its own comment records the
+// symptom -- "the code starts at 1" -- because a permanently-low pin fires
+// exactly one HIGH->LOW edge at startup and then never another. Set this to 0
+// if you have a board that really is wired active-low.
+#define BUTTON_ACTIVE_HIGH 1
 
 #define BTN_DEBOUNCE_MS   25
 #define BTN_LONG_MS      700
@@ -175,7 +189,7 @@ inline uint8_t fragCorner(uint8_t f)       { return (uint8_t)(f * FRAG_LEN + COR
  *  2. Perimeter order, PERIM[0..47]. The 48 outline LEDs in the order your eye
  *     walks them, corner BR onward. This is where chases belong.
  *
- *  3. Position -- ringX / ringY / ringDist. No ordering at all; the badge is a
+ *  3. Position -- ringX / ringY, or polR / polA. No ordering at all; the badge
  *     screen and an LED is lit by where it sits. Plasma, Eye Pulse and Scanner
  *     already work this way, which is why they never had the problem.
  * ------------------------------------------------------------------------- */
@@ -295,8 +309,6 @@ void spillTail(uint16_t headP, uint8_t r, uint8_t g, uint8_t b) {
 // ---------------------------------------------------------------------------
 int8_t  ringX[RING_COUNT];      // -100 (left) .. +100 (right)
 int8_t  ringY[RING_COUNT];      //    0 (bottom edge) .. 100 (apex)
-uint8_t ringDist[RING_COUNT];   //    0 .. 255, distance from the eye
-
 // Polar coordinates about the eye, for every LED including the five inside.
 // The badge has real radial structure now -- outline at the rim, the twelve
 // tail LEDs partway in, the eye at the middle -- so anything that wants to turn
@@ -404,9 +416,6 @@ void buildGeometry() {
   for (uint8_t i = 0; i < RING_COUNT; i++) {
     ringX[i] = (int8_t)lroundf(px[i] * 100.0f);            // half-widths
     ringY[i] = (int8_t)lroundf(py[i] / TRI_ASPECT * 100.0f); // fraction of height
-    float ddx = px[i] - eyeX, ddy = py[i] - eyeY;
-    float d = sqrtf(ddx * ddx + ddy * ddy) * 205.0f;       // corners land near 251
-    ringDist[i] = (uint8_t)(d > 255.0f ? 255.0f : d);
   }
 
   for (uint8_t i = 0; i < PIXEL_COUNT; i++) {
@@ -506,10 +515,14 @@ void animBreathe() {
 void animDrift() {
   uint16_t base = (uint16_t)(gNow * 3);
 
-  for (uint8_t i = 0; i < RING_COUNT; i++) {
-    uint16_t h = base + (uint16_t)ringPos(i) * 240;
-    fbSetHSV(i, h, 235, 120);
-  }
+  // Perimeter order, and the gradient runs against the base so the band travels
+  // the other way round the badge.
+  for (uint8_t i = 0; i < PERIM_COUNT; i++)
+    fbSetHSV(PERIM[i], (uint16_t)(base - (uint16_t)i * 300), 235, 120);
+  for (uint8_t f = 0; f < FRAG_COUNT; f++)
+    for (uint8_t k = 0; k < 4; k++)
+      fbSetHSV((uint8_t)(f * FRAG_LEN + 16 + k),
+               (uint16_t)(base - (uint16_t)(f * 16 + 12 + k) * 300), 235, 105);
 
   uint16_t eyeHue = base + 32768;                    // sits opposite the board
   uint8_t  puls   = 150 + scale8(sin8((uint8_t)(gNow / 22)), 105);
@@ -531,28 +544,6 @@ void animPlasma() {
     uint8_t c = sin8((uint8_t)((x + y) + t));
     uint8_t v = (uint8_t)(((uint16_t)a + b + c) / 3);
     fbSetHSV(i, (uint16_t)v * 200 + (uint16_t)(gNow), 220, 45 + scale8(v, 190));
-  }
-}
-
-// Warm, low-power, and quiet. One global flicker keeps the whole badge moving
-// together; a small per-LED random walk stops it looking like a dimmer.
-void animCandle() {
-  static uint8_t global;
-  if (gFrame == 0) {
-    global = 180;
-    for (uint8_t i = 0; i < PIXEL_COUNT; i++) scratch[i] = 150;
-  }
-
-  int16_t g = (int16_t)global + random(-18, 19);
-  global = (uint8_t)constrain(g, 110, 235);
-
-  for (uint8_t i = 0; i < PIXEL_COUNT; i++) {
-    int16_t s = (int16_t)scratch[i] + random(-10, 11);
-    scratch[i] = (uint8_t)constrain(s, 100, 200);
-
-    uint8_t v = scale8(global, scratch[i]);
-    if (i >= GRB_FIRST) v = qadd8(v, 45);            // eye burns a touch hotter
-    fbSet(i, v, scale8(v, 105), scale8(v, 12));
   }
 }
 
@@ -583,42 +574,112 @@ void animComet() {
   fbSetHSV(TOP_R, hue, 110, scale8(glow, 205));
 }
 
-// Two heads running opposite ways. They pass through each other twice a lap;
-// each near-miss flares white and kicks the eye.
+// Two travellers running the outline head on at different speeds, so the point
+// where they meet walks round the badge instead of repeating. Passing a board's
+// tail anchor one may turn off down the leg -- four LEDs in, turn round, four
+// back out -- and the other goes straight past while it is down there. Every
+// fresh collision hands them both new colours.
+#define TRAVELERS 2
+
 void animCollide() {
-  static uint16_t a, b;
-  static uint8_t  flash;
-  if (gFrame == 0) { a = 0; b = 24 * 16; flash = 0; fbClear(); }
+  static uint16_t pos[TRAVELERS];      // perimeter position, in 1/16ths
+  static int8_t   dir[TRAVELERS];
+  static uint8_t  spd[TRAVELERS];
+  static uint8_t  leg[TRAVELERS];      // 255 on the outline, else which tail
+  static uint8_t  legProg[TRAVELERS];  // 0..127 through that leg and back
+  static uint8_t  cool[TRAVELERS];     // frames before it may turn off again
+  static uint16_t hue[TRAVELERS];
+  static uint8_t  flash, flashAt;
+  static bool     wasHit;
 
-  fbFadeRing(224);
+  if (gFrame == 0) {
+    fbClear(); flash = 0; flashAt = 0;
+    for (uint8_t k = 0; k < TRAVELERS; k++) {
+      pos[k]  = (uint16_t)random(PERIM_COUNT * 16);
+      dir[k]  = k ? -1 : 1;                        // head on, so they actually meet
+      spd[k]  = (uint8_t)(3 + k * 3 + random(0, 3));
+      leg[k]  = 255;
+      cool[k] = 0;
+    }
+    hue[0] = (uint16_t)random(65536);
+    hue[1] = (uint16_t)(hue[0] + 30000);           // kept well apart from each other
+    wasHit = false;
+  }
 
-  a = (uint16_t)((a + 8) % (PERIM_COUNT * 16));
-  b = (uint16_t)((b + PERIM_COUNT * 16 - 8) % (PERIM_COUNT * 16));
+  fbFadeRing(222);
 
-  perimPoint(a, 255, 110,  10);                      // warm, clockwise
-  perimPoint(b,  10, 170, 255);                      // cool, counter-clockwise
-  spillTail(a, 150, 65, 6);
-  spillTail(b, 6, 100, 150);
+  for (uint8_t k = 0; k < TRAVELERS; k++) {
+    hue[k] = (uint16_t)(hue[k] + 8);             // barely drifts; the jump is the event
+    uint32_t c = strip.ColorHSV(hue[k], 205, 255);
+    uint8_t r = (c >> 16) & 0xFF, g = (c >> 8) & 0xFF, b = c & 0xFF;
+    if (cool[k]) cool[k]--;
 
-  uint8_t ga = (uint8_t)(a >> 4), gb = (uint8_t)(b >> 4);
-  if (perimGap(ga, gb) <= 1) flash = 255;
+    if (leg[k] != 255) {                             // off the line, down a leg
+      legProg[k] = (uint8_t)(legProg[k] + spd[k]);
+      if (legProg[k] < 128) {
+        uint8_t depth = legProg[k] < 64 ? (uint8_t)(legProg[k] >> 4)          // in
+                                        : (uint8_t)(3 - ((legProg[k] - 64) >> 4)); // and back
+        fbAdd((uint8_t)(leg[k] * FRAG_LEN + 16 + depth), r, g, b);
+        continue;                                    // its position on the line is held
+      }
+      leg[k]  = 255;                                 // back out where it left
+      cool[k] = 24;
+    }
+
+    pos[k] = (uint16_t)((pos[k] + PERIM_COUNT * 16 + dir[k] * (int16_t)spd[k])
+                        % (PERIM_COUNT * 16));
+    perimPoint(pos[k], r, g, b);
+
+    if (!cool[k]) {
+      uint8_t here = (uint8_t)(pos[k] >> 4);
+      for (uint8_t f = 0; f < FRAG_COUNT; f++)
+        if (here == (uint8_t)(f * 16 + 12) && random(100) < 25) {
+          leg[k] = f; legProg[k] = 0; break;
+        }
+    }
+  }
+
+  bool hit = false;
+  for (uint8_t k = 0; k < TRAVELERS; k++)
+    for (uint8_t j = (uint8_t)(k + 1); j < TRAVELERS; j++)
+      if (leg[k] == 255 && leg[j] == 255 &&
+          perimGap((uint8_t)(pos[k] >> 4), (uint8_t)(pos[j] >> 4)) <= 1) {
+        hit = true; flashAt = (uint8_t)(pos[k] >> 4);
+      }
+  if (hit && !wasHit) {                            // a fresh one, not the same one held
+    flash  = 255;
+    hue[0] = (uint16_t)(hue[0] + random(13000, 28000));
+    hue[1] = (uint16_t)(hue[0] + 26000 + random(0, 12000));
+  }
+  wasHit = hit;
 
   if (flash) {
-    uint8_t mid = ga;
     for (int8_t d = -3; d <= 3; d++) {
       uint8_t w = scale8(flash, (uint8_t)(255 - abs(d) * 70));
-      fbAdd(PERIM[(uint8_t)((mid + PERIM_COUNT + d) % PERIM_COUNT)], w, w, w);
+      fbAdd(PERIM[(uint8_t)((flashAt + PERIM_COUNT + d) % PERIM_COUNT)], w, w, w);
     }
     flash = scale8(flash, 205);
   }
 
-  uint8_t e = qadd8(60, flash);
+  // The eye carries the pair that is running: one traveller's colour on each
+  // side, and the wash above each side takes the same, so the left and right
+  // halves of the white glow in the two colours. The collision flash goes over
+  // the top of both, which covers the swap to their new colours -- the hit
+  // reads as having produced them.
+  for (uint8_t k = 0; k < 2; k++) {
+    uint32_t c = strip.ColorHSV(hue[k], 210, 200);
+    uint32_t d = strip.ColorHSV(hue[k], 190, 120);
+    uint8_t wf = scale8(flash, 205);
+    fbSet(k ? EYE_R : EYE_L, qadd8((c >> 16) & 0xFF, flash),
+                             qadd8((c >>  8) & 0xFF, flash),
+                             qadd8( c        & 0xFF, flash));
+    fbSet(k ? TOP_R : TOP_L, qadd8((d >> 16) & 0xFF, wf),
+                             qadd8((d >>  8) & 0xFF, wf),
+                             qadd8( d        & 0xFF, wf));
+  }
+
+  uint8_t e = qadd8(40, flash);
   fbSet(EYE_C, e, e, e);
-  fbSet(EYE_L, scale8(e, 130), scale8(e, 130), e);
-  fbSet(EYE_R, e, scale8(e, 130), scale8(e, 130));
-  uint8_t w = qadd8(32, flash);                      // the white catches the hit
-  fbSet(TOP_L, w, w, qadd8(w, 22));
-  fbSet(TOP_R, w, w, qadd8(w, 22));
 }
 
 // Hue mapped straight onto perimeter position, rotating. The aux LEDs pick up
@@ -687,27 +748,6 @@ void animCorners() {
 }
 
 // --- Eye-driven ------------------------------------------------------------
-
-// Concentric rings travelling outward from the eye, using the precomputed
-// distance table -- so the wave reaches the apex before the far corners, the
-// way it would if the badge were a pond.
-void animEyePulse() {
-  uint8_t phase = (uint8_t)(gNow / 7);
-  uint16_t hue  = 30000 + (uint16_t)(gNow / 2);
-
-  for (uint8_t i = 0; i < RING_COUNT; i++) {
-    uint8_t w = sin8((uint8_t)(ringDist[i] * 2 - phase));
-    fbSetHSV(i, hue, 210, 12 + scale8(sharpen(w), 210));
-  }
-
-  uint8_t beat = sin8(phase);
-  uint8_t e    = 70 + scale8(beat, 185);
-  fbSetHSV(EYE_C, hue, 30, e);
-  fbSetHSV(EYE_L, hue, 150, scale8(e, 170));
-  fbSetHSV(EYE_R, hue, 150, scale8(e, 170));
-  fbSetHSV(TOP_L, hue, 85, 55 + scale8(beat, 200));
-  fbSetHSV(TOP_R, hue, 85, 55 + scale8(beat, 200));
-}
 
 // The eye winds up, dumps into the three corners, and the discharge races the
 // edges to meet at the midpoints. Then the whole thing sags and starts over.
@@ -931,27 +971,6 @@ void animRadar() {
   for (uint8_t i = 0; i < PIXEL_COUNT; i++) fbAdd(i, 0, 7, 2);   // faint standing ground
 }
 
-// Two arms thrown outward from the eye, fading as they reach the rim.
-void animBloom() {
-  uint8_t t = (uint8_t)(gNow / 11);
-  uint16_t hue = 8000 + (uint16_t)(gNow / 9);
-
-  for (uint8_t i = 0; i < PIXEL_COUNT; i++) {
-    uint8_t phase = (uint8_t)(polA[i] * 2 - polR[i] + t);
-    uint8_t v     = sharpen(sin8(phase));
-    uint8_t reach = (uint8_t)(255 - scale8(polR[i], 150));   // thrown, so it thins out
-    fbSetHSV(i, (uint16_t)(hue + (uint16_t)polR[i] * 30), 215,
-             12 + scale8(scale8(v, reach), 225));
-  }
-
-  uint8_t core = 190 + scale8(sin8((uint8_t)(t * 2)), 65);    // the source sits above it
-  fbSet(EYE_C, core, scale8(core, 205), scale8(core, 130));
-  fbSet(EYE_L, scale8(core, 220), scale8(core, 150), scale8(core, 60));
-  fbSet(EYE_R, scale8(core, 220), scale8(core, 150), scale8(core, 60));
-  fbSet(TOP_L, core, scale8(core, 190), scale8(core, 110));
-  fbSet(TOP_R, core, scale8(core, 190), scale8(core, 110));
-}
-
 // --- Glitch / hacker -------------------------------------------------------
 
 // Droplets spawn near the apex and run down the two slanted edges, splashing
@@ -982,9 +1001,15 @@ void animMatrix() {
   // reading as a void wherever a drop happens not to be.
   fbFill(0, RING_COUNT, 0, 0, 0);
   for (uint8_t i = 0; i < RING_COUNT; i++) {
-    if (random(100) < 4) scratch[i] = (uint8_t)random(45, 130);
-    else                 scratch[i] = scale8(scratch[i], 226);
-    fbAdd(i, 0, qadd8(scratch[i], 7), scale8(scratch[i], 20));
+    if (random(100) < 9) scratch[i] = (uint8_t)random(140, 256);
+    else                 scratch[i] = scale8(scratch[i], 230);
+    // The floor is the whole trick. Gamma 2.2 against a 45/255 brightness cap
+    // crushes anything below about 80 to zero at the LED, so a glyph field
+    // authored at 45..130 looks busy in the framebuffer and is invisible on the
+    // badge. 70 is roughly the lowest value that still arrives, and holding
+    // every wall LED at least there means none of them ever read as dead.
+    uint8_t g = (uint8_t)(70 + scale8(scratch[i], 80));
+    fbAdd(i, 0, g, scale8(g, 20));
   }
 
   for (uint8_t d = 0; d < DROPS; d++) {
@@ -1024,7 +1049,7 @@ void animMatrix() {
     }
   }
 
-  uint8_t cursor = (gNow % 900 < 550) ? 210 : 30;    // terminal cursor blink
+  uint8_t cursor = 32 + scale8(sin8((uint8_t)(gNow / 8)), 200);   // breathes, not blinks
   fbSet(EYE_C, 0, cursor, scale8(cursor, 28));
   fbSet(EYE_L, 0, scale8(cursor, 90), 0);
   fbSet(EYE_R, 0, scale8(cursor, 90), 0);
@@ -1161,19 +1186,16 @@ const Anim ANIMS[] = {
   { animBreathe,      25, "Breathe"       },   // ambient
   { animDrift,        30, "Drift"         },
   { animPlasma,       28, "Plasma"        },
-  { animCandle,       55, "Candle"        },
   { animComet,        18, "Comet"         },   // perimeter motion
   { animCollide,      18, "Collide"       },
   { animRainbow,      22, "Rainbow"       },
   { animCorners,      45, "Corner Pulse"  },
-  { animEyePulse,     22, "Eye Pulse"     },   // eye-driven
-  { animCharge,       18, "Charge & Fire" },
+  { animCharge,       18, "Charge & Fire" },   // eye-driven
   { animScanner,      22, "Scanner"       },
   { animAperture,     22, "Aperture"      },   // the three-board construction
   { animChain,        25, "Fragment Chain"},
   { animVortex,       22, "Vortex"        },   // spirals, in polar coordinates
   { animRadar,        20, "Radar"         },
-  { animBloom,        24, "Bloom"         },
   { animMatrix,       45, "Matrix Rain"   },   // glitch / hacker
   { animGlitch,       70, "Glitch"        },
   { animBoot,         25, "Boot Sequence" },
@@ -1244,20 +1266,22 @@ void cycleBrightness() {
  *  every pass of loop().
  * ===========================================================================
  */
-bool     btnRaw       = HIGH;
-bool     btnStable    = HIGH;
+bool     btnRaw       = false;      // true means pressed, whatever the pin level
+bool     btnStable    = false;
 uint32_t btnEdgeAt    = 0;
 uint32_t btnDownAt    = 0;
 uint32_t btnNextRep   = 0;
 bool     btnLongFired = false;
 
 void serviceButton() {
-  bool raw = digitalRead(BUTTON_PIN);
+  // Normalised to pressed / not pressed at the top, so nothing below has to
+  // care which way round the hardware is.
+  bool raw = (digitalRead(BUTTON_PIN) == (BUTTON_ACTIVE_HIGH ? HIGH : LOW));
   if (raw != btnRaw) { btnRaw = raw; btnEdgeAt = gNow; }
 
   if (raw != btnStable && (gNow - btnEdgeAt) >= BTN_DEBOUNCE_MS) {
     btnStable = raw;
-    if (btnStable == LOW) {
+    if (btnStable) {
       btnDownAt    = gNow;
       btnLongFired = false;
     } else if (!btnLongFired) {
@@ -1265,7 +1289,7 @@ void serviceButton() {
     }
   }
 
-  if (btnStable == LOW) {
+  if (btnStable) {
     if (!btnLongFired && (gNow - btnDownAt) >= BTN_LONG_MS) {
       btnLongFired = true;
       cycleBrightness();
@@ -1288,7 +1312,7 @@ void setup() {
   Serial.begin(115200);
   delay(50);
 
-  pinMode(BUTTON_PIN, INPUT_PULLUP);
+  pinMode(BUTTON_PIN, BUTTON_ACTIVE_HIGH ? INPUT_PULLDOWN : INPUT_PULLUP);
   randomSeed(esp_random());
 
   buildGeometry();

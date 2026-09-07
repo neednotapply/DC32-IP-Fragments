@@ -1,0 +1,18 @@
+# arduino-cli build output. --export-binaries drops ~22 MB of .elf/.map here.
+Fragments_NNA/build/
+build/
+
+# Python
+__pycache__/
+*.py[cod]
+
+# Editors
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db

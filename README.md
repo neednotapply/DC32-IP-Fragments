@@ -7,7 +7,7 @@ The original conference sketch is preserved unchanged as `ConferenceCode_v1`.
 
 | | |
 |---|---|
-| `Fragments_NNA/Fragments_NNA.ino` | New firmware. 19 animations, non-blocking, brightness control. |
+| `Fragments_NNA/Fragments_NNA.ino` | New firmware. 16 animations, non-blocking, brightness control. |
 | `sim/bench.html` | Test bench. Runs every animation in a browser, same math as the badge. |
 | `ConferenceCode_v1` | The original conference sketch, untouched. |
 | `DC32 Stand v2.stl` | Printable stand. |
@@ -16,24 +16,66 @@ The original conference sketch is preserved unchanged as `ConferenceCode_v1`.
 
 ## Setup
 
-1. Install the Arduino IDE https://www.arduino.cc/en/software
-2. Open the Arduino IDE, click on Tools at the top, then "Manage Libraries"
-3. On the left side of the screen, click on Board Manager
-4. Search for ESP32 by Espressif and install the package.
-5. On the left side again, click on Library Manager.
-6. Search for and install the Adafruit NeoPixel Library. This will likely need to install other dependencies, which you will be prompted to do.
-7. Plug in your badge and make sure it is turned on.
-8. Go to Tools > Board, and select ESP32 Dev Module.
-9. You'll need to select the appropriate COM port. This will likely be the highest number COM available. If you're unsure, check Device Manager on your computer.
+Either toolchain works. The IDE is the gentler path; `arduino-cli` is what this
+fork was built and flashed with.
 
-## Program
+**Arduino IDE**
 
-1. Open `Fragments_NNA/Fragments_NNA.ino`, or copy its contents into a new IDE window.
-2. Press "Upload" in the ribbon at the top (the arrow in a circle icon).
-3. For the first upload, you'll be prompted to save the code to your computer.
-4. You should see the IDE compile the code and upload it to the badge.
+1. Install the Arduino IDE — https://www.arduino.cc/en/software
+2. Tools → Board → Boards Manager, search **esp32** by Espressif, install it.
+3. Tools → Manage Libraries, search **Adafruit NeoPixel**, install it. Accept the
+   dependency prompts.
+4. Tools → Board → **ESP32 Dev Module**.
+5. Tools → Port → the badge's port. Usually the highest COM number on Windows,
+   typically `/dev/ttyUSB0` on Linux.
 
-Serial monitor at **115200** baud reports the current animation and brightness.
+**arduino-cli**
+
+```bash
+arduino-cli core install esp32:esp32
+arduino-cli lib install "Adafruit NeoPixel"
+```
+
+## Flashing
+
+Plug the badge in **and switch it on**. The USB-serial chip is powered from USB
+and enumerates a port either way, so a port appearing tells you nothing about
+whether the ESP32 has power — a badge left switched off looks exactly like a
+wiring fault.
+
+In the IDE, open `Fragments_NNA/Fragments_NNA.ino` and press Upload. Or:
+
+```bash
+arduino-cli compile --fqbn esp32:esp32:esp32 Fragments_NNA
+arduino-cli upload -p /dev/ttyUSB0 --fqbn esp32:esp32:esp32 Fragments_NNA
+```
+
+A serial monitor at **115200** baud reports the animation and brightness on every
+change, which is the quickest way to see whether the button is behaving:
+
+```
+[0/15] Breathe
+Fragments: 16 animations, 5 brightness levels.
+  short press = next animation
+  hold        = brightness
+```
+
+### If it will not connect
+
+`Failed to connect … No serial data received` at every baud rate means the chip is
+not answering at all. That is a power or cabling problem, not something upload
+settings will fix. In order of likelihood:
+
+1. **The badge is switched off.** By far the most common cause.
+2. Flat battery — the ESP32 may not come up even with USB attached.
+3. Manual bootloader entry, if your board exposes the pins: hold **BOOT** (GPIO0),
+   tap **EN/RST**, then release BOOT once the upload begins.
+
+**Do not hold the badge button while flashing.** It is on GPIO12, which is MTDI,
+an ESP32 strapping pin — see [The button is active HIGH](#the-button-is-active-high).
+
+Built clean against esp32 core 3.3.11 with Adafruit NeoPixel 1.15.5:
+308 KB flash (23%), 24 KB RAM (7%).
 
 ---
 
@@ -49,6 +91,27 @@ brightness, or a count of lit pixels from the bottom-right corner for the
 animation number. Both count in perimeter order, so they run down the edge
 rather than turning off into a board's leg partway along.
 
+### The button is active HIGH
+
+The original sketch used `INPUT_PULLUP` and treated LOW as pressed. On this
+hardware that is backwards, and it is why the original carries the comment
+*"There is an issue on how mode is being set. The code starts at 1."*
+
+GPIO12 is MTDI, an ESP32 strapping pin that must be low at boot or the chip sets
+`VDD_SDIO` to 1.8 V and will not start from 3.3 V flash. The board therefore has
+an external pull-down on it, and that pull-down beats the chip's ~45 kΩ internal
+pull-up: with `INPUT_PULLUP` the pin reads LOW forever, pressed or not. A GPIO
+scan confirms it — every other input idles at 1, GPIO12 alone sits at 0 even
+with the internal pull-up enabled.
+
+So the original never actually read the button. It saw one HIGH→LOW edge at
+startup, advanced to mode 1, and never registered another press. This firmware
+uses `INPUT_PULLDOWN` and treats HIGH as pressed (`BUTTON_ACTIVE_HIGH`).
+
+If you are adapting this for a board that really is wired active-low, set
+`BUTTON_ACTIVE_HIGH` to 0 — `serviceButton()` normalises to pressed/not-pressed
+at the top, so nothing else needs touching.
+
 ## Animations
 
 | # | Name | Family |
@@ -56,24 +119,21 @@ rather than turning off into a board's leg partway along.
 | 0 | Breathe | Ambient — the original `breathingBadge()`, finished |
 | 1 | Drift | Ambient |
 | 2 | Plasma | Ambient |
-| 3 | Candle | Ambient |
-| 4 | Comet | Perimeter motion |
-| 5 | Collide | Perimeter motion |
-| 6 | Rainbow | Perimeter motion |
-| 7 | Corner Pulse | Perimeter motion |
-| 8 | Eye Pulse | Eye-driven |
-| 9 | Charge & Fire | Eye-driven |
-| 10 | Scanner | Eye-driven |
-| 11 | Aperture | Fragments — the boards close like iris blades, then the flash fires |
-| 12 | Fragment Chain | Fragments — the `DOUT`→`DIN` data path, made visible |
-| 13 | Vortex | Spiral — three arms winding inward, one per board |
-| 14 | Radar | Spiral — one beam sweeping, with a decaying wake |
-| 15 | Bloom | Spiral — two arms thrown outward from the eye |
+| 3 | Comet | Perimeter motion |
+| 4 | Collide | Perimeter motion — two travellers head on; the eye holds their two colours |
+| 5 | Rainbow | Perimeter motion |
+| 6 | Corner Pulse | Perimeter motion |
+| 7 | Charge & Fire | Eye-driven |
+| 8 | Scanner | Eye-driven |
+| 9 | Aperture | Fragments — the boards close like iris blades, then the flash fires |
+| 10 | Fragment Chain | Fragments — the `DOUT`→`DIN` data path, made visible |
+| 11 | Vortex | Spiral — three arms winding inward, one per board |
+| 12 | Radar | Spiral — one beam sweeping, with a decaying wake |
+| 13 | Matrix Rain | Glitch — the badge as a wall, drops falling through it |
+| 14 | Glitch | Glitch |
+| 15 | Boot Sequence | Glitch |
 
-All three turn clockwise seen from the front.
-| 16 | Matrix Rain | Glitch — the badge as a wall, drops falling through it |
-| 17 | Glitch | Glitch |
-| 18 | Boot Sequence | Glitch |
+Both spirals turn clockwise seen from the front.
 
 The three original conference flickers are not in this firmware. They are still
 in `ConferenceCode_v1`, unchanged, if you want them back.
@@ -98,6 +158,11 @@ button press only registered if you happened to be holding it during the one
 `digitalRead()` per cycle. Everything now runs off a frame timer and the button
 is sampled every pass of `loop()`.
 
+**The button is read correctly.** The original had it wired backwards for this
+hardware and never actually registered a press — it saw one edge at startup and
+nothing after. Its own comment records the symptom. See
+[The button is active HIGH](#the-button-is-active-high).
+
 **One place for the GRB problem.** LEDs 60–64 are from a different vendor and
 take their bytes in GRB order while the strand is initialized `NEO_RGB`. The
 original hand-swapped red and green in every color constant destined for those
@@ -116,10 +181,16 @@ limiter estimates draw from the channel sum and scales the whole frame down if
 it would exceed `POWER_LIMIT_MA` (default 700 mA) — 65 WS2812s at full white is
 about 3.9 A, which nothing on this badge wants to supply.
 
-Note that at the lower brightness levels an 8-bit PWM output has real limits:
-with the cap at 45/255, authored values below roughly 48 land on zero. That is
-inherent to the hardware, not the code. Bump the brightness level if an
-animation looks like it is missing its dim detail.
+Note that at the lower brightness levels an 8-bit PWM output has real limits.
+Gamma runs before the brightness scale, so with the cap at 45/255 the chain is
+`fb 45 -> gamma 6 -> output 1`, and `fb 80 -> gamma 20 -> output 3`. **Anything
+authored below roughly 80 does not reach the LED at all.**
+
+This is the easiest way to write an animation that looks right in the
+framebuffer and is invisible on the badge — a dim background field authored at
+45–130 measures as "busy" and lands as 57% of the LEDs completely dark. If an
+effect needs a floor that the viewer can actually see, put it at 70 or above and
+measure at the strip, not in `fb[]`.
 
 ## How the badge is built
 
@@ -152,7 +223,7 @@ looks like it ought to be the outline and isn't.
 |---|---|---|
 | **Strand order** | `0..59` | What the wire does. It runs an edge, dives off the outline into that board's tail, then jumps out to the next board's leg. |
 | **Perimeter order** | `PERIM[0..47]` | The 48 outline LEDs in the order your eye walks them, from corner BR. |
-| **Position** | `ringX` / `ringY` / `ringDist` | No ordering at all — the badge is a screen and an LED is lit by where it sits. |
+| **Position** | `ringX` / `ringY` | No ordering at all — the badge is a screen and an LED is lit by where it sits. |
 | **Polar** | `polR` / `polA` | Position again, but about the eye — radius and angle, for anything that turns or winds. |
 
 Anything that reads as **motion along an edge** belongs in perimeter order. A
@@ -164,8 +235,8 @@ Boot Sequence and the discharge half of Charge & Fire all use `perimPoint()`.
 its attachment point, so the inner LEDs join the motion instead of sitting dead
 through every chase.
 
-Plasma, Eye Pulse and Scanner are **positional** — they never referenced order in
-the first place, which is why they were the only chases that always looked right.
+Plasma and Scanner are **positional** — they never referenced order in the first
+place, which is why they never had this problem.
 Matrix Rain is positional too, and the clearest case for it: the badge is a wall
 and a drop falls straight down through it at a constant speed *in space*, not
 from LED to LED. So the delay between two lit LEDs is however long the empty
@@ -176,7 +247,7 @@ wall; only the eye is excluded.
 Fragment Chain is the one animation that genuinely wants **strand order**: it is
 drawing the data path.
 
-The three Spiral animations are **polar**. Because the badge has genuine radial
+Both Spiral animations are **polar**. Because the badge has genuine radial
 structure — outline at mean radius 164, the twelve tail LEDs at 133, the eye at
 52 — a spiral written against `polR` / `polA` sweeps through all three bands as
 one surface, curving in off the edge, through the tails, to the eye. They are all
@@ -205,10 +276,12 @@ lights, not point accents: whatever colour they carry becomes the colour of the
 sclera, which makes them the highest-leverage pair on the badge for selling
 "the eye is awake". Give them the eye's colour, never the board's — a teal pair
 over a warm eye turns the whole white teal and it stops reading as an eye. Every
-animation except the three conference classics drives them that way.
+animation drives them that way — `Collide` goes furthest with it, putting one
+traveller's colour on each side so the two halves of the white glow in the two
+colours that are about to hit.
 - `TRI_ASPECT` is the triangle's height over its half-width, set to 1.732 for
-  equilateral (photos measure ≈1.72). Only `ringDist` — and so `Eye Pulse` —
-  depends on it.
+  equilateral (photos measure ≈1.72). It sets the vertical scale for `polR`, so
+  the spirals are what notice if it is wrong.
 
 The tail geometry is measured off a photograph of a single board and reproduces
 it to within a tenth of an LED-spacing. Both consequences are confirmed against
