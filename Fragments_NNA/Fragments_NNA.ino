@@ -108,6 +108,29 @@
 // ESP32. Set to 0 to disable. ~60mA per LED at full white == 765 channel units.
 #define POWER_LIMIT_MA   700
 
+// ---------------------------------------------------------------------------
+// The badge's house green
+//
+// Greenback green -- the shade the Great Seal and the back of the dollar are
+// printed in -- rather than the neon a WS2812 hands you if you simply ask for
+// green. It wants some red for warmth and a little blue to keep it off acid.
+//
+// The numbers below look far too pale for that, and they have to be. Gamma runs
+// before the brightness scale and it is a power law, so it crushes the minor
+// channels much harder than the dominant one: authoring 55 red against 255 green
+// does not give 22% red at the LED, it gives about 3%. To land on a drive ratio
+// near 0.35 : 1.00 : 0.20 the source has to sit up at 159 : 255 : 124.
+//
+// Scaling the whole colour preserves the ratio -- a power law scales all three
+// channels alike -- so these survive being dimmed by a breath or a fade.
+#define GREEN_R      159        // the ink
+#define GREEN_G      255
+#define GREEN_B      124
+
+#define GREEN_PALE_R 216        // the same ink thinned, for the eye it lights
+#define GREEN_PALE_G 255
+#define GREEN_PALE_B 199
+
 #define USE_GAMMA          1    // gamma-correct output; fades look far better
 #define GAMMA_EXP       2.2f    // see GAMMA[] below
 
@@ -260,6 +283,12 @@ inline void fbFadeAll(uint8_t keep)  { fbFade(0, PIXEL_COUNT, keep); }
 
 void fbFill(uint8_t from, uint8_t to, uint8_t r, uint8_t g, uint8_t b) {
   for (uint8_t i = from; i < to; i++) fbSet(i, r, g, b);
+}
+
+// Lay a colour down at a given level. Scaling all three channels together keeps
+// the hue put, which straight fbSet with a hand-scaled channel does not.
+inline void fbTint(uint8_t i, uint8_t r, uint8_t g, uint8_t b, uint8_t v) {
+  fbSet(i, scale8(r, v), scale8(g, v), scale8(b, v));
 }
 
 // hue is the full 16-bit wheel, matching Adafruit_NeoPixel::ColorHSV.
@@ -497,22 +526,24 @@ void animBreathe() {
   uint8_t b     = sin8(phase);
 
   uint8_t v = 14 + scale8(b, 120);
-  for (uint8_t i = 0; i < RING_COUNT; i++) fbSet(i, 0, scale8(v, 210), v);
+  for (uint8_t i = 0; i < RING_COUNT; i++) fbTint(i, GREEN_R, GREEN_G, GREEN_B, v);
 
   // Corners hold a little more than the edges so the triangle keeps its shape.
   uint8_t cv = 40 + scale8(b, 180);
-  fbSet(CORNER_BR, 0, scale8(cv, 210), cv);
-  fbSet(CORNER_BL, 0, scale8(cv, 210), cv);
-  fbSet(CORNER_TOP, 0, scale8(cv, 210), cv);
+  fbTint(CORNER_BR,  GREEN_R, GREEN_G, GREEN_B, cv);
+  fbTint(CORNER_BL,  GREEN_R, GREEN_G, GREEN_B, cv);
+  fbTint(CORNER_TOP, GREEN_R, GREEN_G, GREEN_B, cv);
 
+  // The eye is the same ink thinned, so the badge reads as one colour with the
+  // eye as its highlight rather than a white thing sat on a green thing.
   uint8_t e = 25 + scale8(sin8((uint8_t)(phase + 26)), 200);
-  fbSet(EYE_C, e, e, e);
-  fbSet(EYE_L, scale8(e, 170), scale8(e, 200), e);
-  fbSet(EYE_R, scale8(e, 170), scale8(e, 200), e);
+  fbTint(EYE_C, GREEN_PALE_R, GREEN_PALE_G, GREEN_PALE_B, e);
+  fbTint(EYE_L, GREEN_R, GREEN_G, GREEN_B, e);
+  fbTint(EYE_R, GREEN_R, GREEN_G, GREEN_B, e);
 
-  uint8_t t = scale8(e, 165);                        // wash the white with the eye
-  fbSet(TOP_L, t, t, scale8(t, 235));
-  fbSet(TOP_R, t, t, scale8(t, 235));
+  uint8_t t = scale8(e, 165);                        // wash the sclera with it
+  fbTint(TOP_L, GREEN_PALE_R, GREEN_PALE_G, GREEN_PALE_B, t);
+  fbTint(TOP_R, GREEN_PALE_R, GREEN_PALE_G, GREEN_PALE_B, t);
 }
 
 // Whole badge drifting through the color wheel, with a slow gradient wrapped

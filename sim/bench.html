@@ -285,6 +285,13 @@ const N = 65, RING = 60, GRB_FIRST = 60;
 const CORNER_BR = 3, CORNER_BL = 23, CORNER_TOP = 43;
 const EYE_C = 60, EYE_L = 61, EYE_R = 62, TOP_L = 63, TOP_R = 64;
 const BRIGHT_MIN = 4, BRIGHT_MAX = 160, BRIGHT_RAMP_MS = 40;
+
+/* The badge's house green: greenback, not neon. These look far too pale because
+   gamma runs before the brightness scale and crushes the minor channels much
+   harder than the dominant one -- 159:255:124 lands on 0.35:1.00:0.21 at the
+   LED. Scaling all three together preserves the ratio. */
+const GREEN_R = 159, GREEN_G = 255, GREEN_B = 124;
+const GREEN_PALE_R = 216, GREEN_PALE_G = 255, GREEN_PALE_B = 199;
 const POWER_LIMIT_MA = 700;
 const TRI_ASPECT = 1.732;
 const EYE_CX = 0, EYE_CY = 41;
@@ -454,6 +461,9 @@ function fbFade(from, to, keep) { for (let k = from * 3; k < to * 3; k++) fb[k] 
 const fbFadeRing = keep => fbFade(0, RING, keep);
 const fbFadeAll  = keep => fbFade(0, N, keep);
 function fbFill(from, to, r, g, b) { for (let i = from; i < to; i++) fbSet(i, r, g, b); }
+// Lay a colour down at a level, scaling all three channels so the hue stays put.
+function fbTint(i, r, g, b, v) { fbSet(i, scale8(r, v), scale8(g, v), scale8(b, v)); }
+
 function fbSetHSV(i, h, s, v) { const c = ColorHSV(h, s, v); fbSet(i, (c >> 16) & 255, (c >> 8) & 255, c & 255); }
 function fbAddHSV(i, h, s, v) { const c = ColorHSV(h, s, v); fbAdd(i, (c >> 16) & 255, (c >> 8) & 255, c & 255); }
 
@@ -473,18 +483,19 @@ const t8 = d => Math.floor(now / d) & 255;
 function animBreathe() {
   const phase = t8(20), b = sin8(phase);
   const v = 14 + scale8(b, 120);
-  for (let i = 0; i < RING; i++) fbSet(i, 0, scale8(v, 210), v);
+  for (let i = 0; i < RING; i++) fbTint(i, GREEN_R, GREEN_G, GREEN_B, v);
   const cv = 40 + scale8(b, 180);
-  fbSet(CORNER_BR, 0, scale8(cv, 210), cv);
-  fbSet(CORNER_BL, 0, scale8(cv, 210), cv);
-  fbSet(CORNER_TOP, 0, scale8(cv, 210), cv);
+  fbTint(CORNER_BR,  GREEN_R, GREEN_G, GREEN_B, cv);
+  fbTint(CORNER_BL,  GREEN_R, GREEN_G, GREEN_B, cv);
+  fbTint(CORNER_TOP, GREEN_R, GREEN_G, GREEN_B, cv);
+  // The eye is the same ink thinned, so the badge reads as one colour.
   const e = 25 + scale8(sin8(phase + 26), 200);
-  fbSet(EYE_C, e, e, e);
-  fbSet(EYE_L, scale8(e, 170), scale8(e, 200), e);
-  fbSet(EYE_R, scale8(e, 170), scale8(e, 200), e);
-  const t = scale8(e, 165);                          // wash the white with the eye
-  fbSet(TOP_L, t, t, scale8(t, 235));
-  fbSet(TOP_R, t, t, scale8(t, 235));
+  fbTint(EYE_C, GREEN_PALE_R, GREEN_PALE_G, GREEN_PALE_B, e);
+  fbTint(EYE_L, GREEN_R, GREEN_G, GREEN_B, e);
+  fbTint(EYE_R, GREEN_R, GREEN_G, GREEN_B, e);
+  const t = scale8(e, 165);                          // wash the sclera with it
+  fbTint(TOP_L, GREEN_PALE_R, GREEN_PALE_G, GREEN_PALE_B, t);
+  fbTint(TOP_R, GREEN_PALE_R, GREEN_PALE_G, GREEN_PALE_B, t);
 }
 
 function animDrift() {

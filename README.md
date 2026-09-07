@@ -116,7 +116,7 @@ at the top, so nothing else needs touching.
 
 | # | Name | Family |
 |---|---|---|
-| 0 | Breathe | Ambient — the original `breathingBadge()`, finished |
+| 0 | Breathe | Ambient — the original `breathingBadge()`, finished, in the house green |
 | 1 | Drift | Ambient |
 | 2 | Plasma | Ambient |
 | 3 | Comet | Perimeter motion |
@@ -191,7 +191,14 @@ Gamma runs before the brightness scale, so with the cap at 45/255 the chain is
 `fb 45 -> gamma 6 -> output 1`, and `fb 80 -> gamma 20 -> output 3`. **Anything
 authored below roughly 80 does not reach the LED at all.**
 
-This is the easiest way to write an animation that looks right in the
+The same power law bites colour. It crushes the minor channels much harder than
+the dominant one, so authoring 55 red against 255 green does not give 22% red at
+the LED — it gives about 3%, and what should be a sage green comes out neon. The
+house green (`GREEN_R/G/B`) is written 159 : 255 : 124, which looks far too pale
+on the page and lands on 0.35 : 1.00 : 0.21 at the strip. Scaling all three
+channels together preserves the ratio, so a tint survives being dimmed.
+
+This is also the easiest way to write an animation that looks right in the
 framebuffer and is invisible on the badge — a dim background field authored at
 45–130 measures as "busy" and lands as 57% of the LEDs completely dark. If an
 effect needs a floor that the viewer can actually see, put it at 70 or above and
