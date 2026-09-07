@@ -183,8 +183,12 @@ animation table — after the list shrinks, say — is discarded rather than use
 
 ## Wireless control
 
-Over **BLE**, not WiFi. The badge advertises as `Fragments` and carries its whole
-state in one characteristic:
+Over **BLE**, not WiFi — see [Why not WiFi](#why-not-wifi). There are three ways
+in, and they work at the same time: the test bench over Web Bluetooth, any MIDI
+controller app, or raw GATT from something like nRF Connect.
+
+The badge advertises as `Fragments` and carries its whole state in one
+characteristic:
 
 | | |
 |---|---|
@@ -202,6 +206,24 @@ Web Bluetooth is not available in Safari) and press **Connect badge**. The
 preview keeps running locally, using the same integer maths the badge is running,
 so you are watching the badge rather than a video of it.
 
+### As a MIDI controller target
+
+The badge also presents itself as a **BLE MIDI device**, which is a standard
+profile — Apple wrote the spec, and iOS, macOS, Android and Windows all speak it
+natively. So any of the free MIDI controller apps will drive it, with faders and
+pads, with nothing to install and no page to host:
+
+| MIDI | does |
+|---|---|
+| CC 1 (mod wheel) | brightness |
+| CC 2 | hue |
+| Program change | picks the animation |
+| Note on | picks the animation, for pad grids |
+
+It is only a GATT service with two well-known UUIDs, so it costs a few hundred
+bytes and no library. Both services are advertised together — a MIDI app and the
+test bench can be connected at the same time.
+
 ### Why not WiFi
 
 This was a soft AP first and it would not work on this board. The failure is
@@ -213,9 +235,14 @@ worth writing down, because everything reports healthy:
 - transmit is fine — BLE advertising from the same antenna is picked up at −40 dBm
 - erasing NVS to force PHY recalibration changed nothing
 - yielding in `loop()` so the WiFi task is never starved changed nothing
+- **core 2.0.17 and core 3.3.11 fail identically**, so it is not a regression
+- invisible at 2 dBm as well as at 19.5, so it is not the supply sagging under
+  a transmit burst
 - two independent clients, a laptop and a phone, never see the beacon
 
 So the radio works in both directions and the fault is specific to AP beaconing.
+Station mode is the one path left untested; it would also be the better shape,
+since a badge that *joins* a hotspot can serve the page on it.
 `WIFI_ENABLED 1` and `BLE_ENABLED 0` will build it for anyone whose board does
 not have the problem — the page and the HTTP endpoints are still there. The two
 radios are mutually exclusive; both stacks together overflow the partition.

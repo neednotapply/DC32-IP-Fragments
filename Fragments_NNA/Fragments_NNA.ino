@@ -92,6 +92,17 @@
   #define BLE_NAME      "Fragments"
   #define BLE_SERVICE   ((uint16_t)0xFFF0)
   #define BLE_STATE     ((uint16_t)0xFFF1)
+
+  // The badge also presents itself as a BLE MIDI device. That is a standard
+  // profile -- Apple wrote the spec and iOS, macOS, Android and Windows all
+  // speak it natively -- which means any of the free MIDI controller apps can
+  // drive the badge with faders and pads, with nothing to install on the badge
+  // side and no page to host. It is only a GATT service with two well-known
+  // UUIDs, so it costs a few hundred bytes and no library.
+  #define MIDI_SERVICE  "03b80e5a-ede8-4b33-a751-6ce34ec4c700"
+  #define MIDI_CHAR     "7772e5db-3868-4112-a1a9-f2669d106bf3"
+  #define MIDI_CC_BRIGHT 1      // mod wheel
+  #define MIDI_CC_HUE    2
 #endif
 #if WIFI_ENABLED
   #include <WiFi.h>
@@ -1476,6 +1487,53 @@ class StateCallbacks : public BLECharacteristicCallbacks {
   }
 };
 
+// A MIDI controller speaks in sevens: 0..127 for everything.
+static void midiBright(uint8_t v) {
+  uint8_t b = (uint8_t)(BRIGHT_MIN + ((uint16_t)v * (BRIGHT_MAX - BRIGHT_MIN)) / 127);
+  if (b != gBright) { gBright = b; settingsTouch(); }
+}
+static void midiHue(uint8_t v) {
+  uint16_t h = (uint16_t)(((uint32_t)v * 65535UL) / 127);
+  if (h != gHue) { gHue = h; updateInk(); settingsTouch(); }
+}
+static void midiAnim(uint8_t v) {
+  uint8_t m = (uint8_t)(v % ANIM_COUNT);
+  if (m != gMode) setMode(m);
+}
+
+// BLE MIDI packets are a header byte, then a timestamp byte before each message.
+// Both have the top bit set, as do status bytes, so the only way to tell them
+// apart is to keep the position: after the header it alternates timestamp,
+// status, data. Running status is not handled -- no controller worth using
+// bothers with it over BLE.
+class MidiCallbacks : public BLECharacteristicCallbacks {
+  void onWrite(BLECharacteristic *c) override {
+    uint8_t *d = c->getData();
+    size_t   n = c->getLength();
+    if (!d || n < 3) return;
+
+    size_t i = 1;                                  // skip the header byte
+    while (i + 1 < n) {
+      if (!(d[i] & 0x80)) break;                   // expected a timestamp
+      uint8_t st = d[++i];
+      if (!(st & 0x80)) break;
+      uint8_t kind = st & 0xF0;
+      if (kind == 0xB0 && i + 2 < n) {             // control change
+        uint8_t cc = d[i + 1], val = d[i + 2];
+        if (cc == MIDI_CC_BRIGHT)   midiBright(val);
+        else if (cc == MIDI_CC_HUE) midiHue(val);
+        i += 3;
+      } else if (kind == 0xC0 && i + 1 < n) {      // program change
+        midiAnim(d[i + 1]);
+        i += 2;
+      } else if (kind == 0x90 && i + 2 < n) {      // note on, for pad grids
+        if (d[i + 2]) midiAnim(d[i + 1]);
+        i += 3;
+      } else break;
+    }
+  }
+};
+
 class ServerCallbacks : public BLEServerCallbacks {
   void onConnect(BLEServer *) override { bleLinked = true;  Serial.println("ble: linked"); }
   void onDisconnect(BLEServer *srv) override {
@@ -1499,14 +1557,28 @@ void bleBegin() {
   blePublish();
   svc->start();
 
+  // The MIDI service, so any MIDI controller app can drive the badge.
+  BLEService *midi = srv->createService(BLEUUID(MIDI_SERVICE));
+  BLECharacteristic *midiChar = midi->createCharacteristic(
+      BLEUUID(MIDI_CHAR),
+      BLECharacteristic::PROPERTY_READ | BLECharacteristic::PROPERTY_WRITE_NR |
+      BLECharacteristic::PROPERTY_NOTIFY);
+  midiChar->addDescriptor(new BLE2902());
+  midiChar->setCallbacks(new MidiCallbacks());
+  midi->start();
+
   BLEAdvertising *adv = BLEDevice::getAdvertising();
   adv->addServiceUUID(BLEUUID(BLE_SERVICE));
+  adv->addServiceUUID(BLEUUID(MIDI_SERVICE));
   adv->setScanResponse(true);
   BLEDevice::startAdvertising();
 
   Serial.printf("ble: advertising as \"%s\", service 0x%04X, state 0x%04X\n",
                 BLE_NAME, BLE_SERVICE, BLE_STATE);
   Serial.printf("ble: mac %s\n", BLEDevice::getAddress().toString().c_str());
+  Serial.printf("midi: also a BLE MIDI device -- CC%u brightness, CC%u hue, "
+                "program change or note picks the animation\n",
+                MIDI_CC_BRIGHT, MIDI_CC_HUE);
 }
 
 // Push local changes out, but not faster than a client can care about: a
