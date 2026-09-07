@@ -55,9 +55,9 @@ change, which is the quickest way to see whether the button is behaving:
 
 ```
 [0/15] Breathe
-Fragments: 16 animations, 5 brightness levels.
+Fragments: 16 animations, brightness 4..160.
   short press = next animation
-  hold        = brightness
+  hold        = ramp brightness, turns round at each end
 ```
 
 ### If it will not connect
@@ -84,7 +84,7 @@ Built clean against esp32 core 3.3.11 with Adafruit NeoPixel 1.15.5:
 | Input | Action |
 |---|---|
 | Short press | Next animation |
-| Hold (0.7s, repeats every 0.45s) | Cycle brightness, brightest wraps back to dimmest |
+| Hold (after 0.7s) | Ramp brightness, turning round at each end |
 
 Both give a readout on the badge itself: a bar around the perimeter for
 brightness, or a count of lit pixels from the bottom-right corner for the
@@ -176,7 +176,12 @@ animations can say "sweep upward" or "ripple out from the eye" rather than
 hardcoding strand numbers.
 
 **Brightness and power.** Animations are written at the full 0–255 range and
-scaled at output, giving five brightness levels on the button. A current
+scaled at output. Brightness is continuous rather than a few preset steps: hold
+the button and it ramps, turning round at each end so one button covers both
+directions — about 58 steps from `BRIGHT_MIN` to `BRIGHT_MAX`, 2.3 s end to end.
+Each step is proportional to where it already is, roughly 6%, because the eye
+reads brightness as a ratio and not a difference: a jump of 4 is enormous down
+at 8 and invisible up at 140. A current
 limiter estimates draw from the channel sum and scales the whole frame down if
 it would exceed `POWER_LIMIT_MA` (default 700 mA) — 65 WS2812s at full white is
 about 3.9 A, which nothing on this badge wants to supply.

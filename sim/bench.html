@@ -130,16 +130,6 @@
   .anim .ms { font-family: var(--f-mono); font-size: 10.5px; color: var(--silk-faint);
               font-variant-numeric: tabular-nums; }
 
-  /* brightness stepper - five segments, matching BRIGHT_LEVELS in the firmware */
-  .steps { display: grid; grid-template-columns: repeat(5, 1fr); gap: 4px; }
-  .step { height: 30px; border: 1px solid var(--trace); border-radius: 2px;
-          background: var(--pcb-deep); font-family: var(--f-mono); font-size: 10px;
-          color: var(--silk-faint); display: grid; place-items: center;
-          font-variant-numeric: tabular-nums; transition: all .12s; }
-  .step:hover { border-color: var(--trace-lit); color: var(--silk-dim); }
-  .step[aria-pressed="true"] { background: var(--gold); border-color: var(--gold);
-                               color: #16110a; font-weight: 600; }
-
   label.row { display: flex; align-items: center; justify-content: space-between; gap: 12px;
               font-family: var(--f-mono); font-size: 11px; color: var(--silk-dim);
               text-transform: uppercase; letter-spacing: .09em; }
@@ -234,8 +224,8 @@
         <h2>Output</h2>
         <div class="body">
           <div>
-            <label class="row" style="margin-bottom:6px">Brightness <output id="brOut">45 / 255</output></label>
-            <div class="steps" id="steps"></div>
+            <label class="row" for="bright">Brightness <output id="brOut">45</output></label>
+            <input type="range" id="bright" min="4" max="160" value="45">
           </div>
           <div>
             <label class="row" for="spd">Speed <output id="spdOut">1.00&times;</output></label>
@@ -278,8 +268,8 @@
 
   <footer>
     <span>DC32 &middot; Illuminati Party&reg; &ldquo;Fragments&rdquo;</span>
-    <span>16 animations &middot; 5 brightness levels</span>
-    <span>Short press: next &middot; Hold: brightness</span>
+    <span>16 animations &middot; brightness 4&ndash;160</span>
+    <span>Short press: next &middot; Hold: ramp brightness</span>
   </footer>
 </div>
 
@@ -294,11 +284,11 @@
 const N = 65, RING = 60, GRB_FIRST = 60;
 const CORNER_BR = 3, CORNER_BL = 23, CORNER_TOP = 43;
 const EYE_C = 60, EYE_L = 61, EYE_R = 62, TOP_L = 63, TOP_R = 64;
-const BRIGHT_LEVELS = [12, 24, 45, 80, 130];
+const BRIGHT_MIN = 4, BRIGHT_MAX = 160, BRIGHT_RAMP_MS = 40;
 const POWER_LIMIT_MA = 700;
 const TRI_ASPECT = 1.732;
 const EYE_CX = 0, EYE_CY = 41;
-const BTN_LONG_MS = 700, BTN_REPEAT_MS = 450;
+const BTN_LONG_MS = 700;
 
 /* --- integer helpers ------------------------------------------------------ */
 const u8  = v => v & 255;
@@ -475,7 +465,7 @@ function ringPoint(p, r, g, b) {
 }
 
 /* --- engine state --------------------------------------------------------- */
-let now = 0, gFrame = 0, gMode = 0, gBright = 2;
+let now = 0, gFrame = 0, gMode = 0, gBright = 45, gBrightDir = 1;
 const st = {};                                   // per-animation state, cleared on mode change
 const t8 = d => Math.floor(now / d) & 255;
 
@@ -1018,7 +1008,7 @@ let reqMA = 0, limited = false;
 const BUDGET = Math.floor((POWER_LIMIT_MA * 765) / 60);
 
 function pushFrame() {
-  const bright = BRIGHT_LEVELS[gBright];
+  const bright = gBright;
   let sum = 0;
   for (let k = 0; k < N * 3; k++) { const v = scale8(GAMMA[fb[k]], bright); out[k] = v; sum += v; }
   reqMA = sum * 60 / 765;
@@ -1028,13 +1018,11 @@ function pushFrame() {
 
 /* --- on-badge readout, as in showFeedback() ------------------------------- */
 let gFeedback = 0, gFeedbackTo = 0;          // 0 none, 1 mode, 2 brightness
+// Only the animation number gets a readout. Brightness deliberately does not:
+// while ramping you want to see the animation AT that brightness.
 function showFeedback() {
   fbClear();
-  if (gFeedback === 2) {
-    const lit = Math.floor(((gBright + 1) * PERIM_COUNT) / BRIGHT_LEVELS.length);
-    for (let r = 0; r < lit; r++) fbSet(PERIM[r], 200, 230, 255);
-    fbFill(GRB_FIRST, N, 120, 150, 200);
-  } else {
+  {
     // Perimeter order, so the count runs down the edge instead of turning off
     // into a board's leg partway through.
     for (let r = 0; r <= gMode && r < PERIM_COUNT; r++) fbSet(PERIM[r], 255, 140, 0);
@@ -1207,15 +1195,21 @@ function setMode(m, fromBadge) {
   if (fromBadge) { gFeedback = 1; gFeedbackTo = now + 400; }
   syncMode();
 }
-function cycleBrightness() {
-  gBright = (gBright + 1) % BRIGHT_LEVELS.length;
-  gFeedback = 2; gFeedbackTo = now + 350;
+// One step of the ramp, proportional to where it already is (~6%), because the
+// eye reads brightness as a ratio rather than a difference.
+function rampBrightness() {
+  let step = gBright >> 4;
+  if (step < 1) step = 1;
+  let v = gBright + gBrightDir * step;
+  if (v >= BRIGHT_MAX)      { v = BRIGHT_MAX; gBrightDir = -1; }
+  else if (v <= BRIGHT_MIN) { v = BRIGHT_MIN; gBrightDir =  1; }
+  gBright = v;
   syncBright();
 }
 
 /* --- UI ------------------------------------------------------------------- */
 const $ = id => document.getElementById(id);
-const animList = $("animList"), stepsEl = $("steps");
+const animList = $("animList");
 const rowEls = [];
 
 let lastFam = null;
@@ -1235,13 +1229,7 @@ ANIMS.forEach((a, i) => {
   rowEls.push(btn);
 });
 
-BRIGHT_LEVELS.forEach((lv, i) => {
-  const b = document.createElement("button");
-  b.className = "step"; b.type = "button"; b.textContent = lv;
-  b.setAttribute("aria-label", "Brightness level " + (i + 1) + ", value " + lv);
-  b.addEventListener("click", () => { gBright = i; syncBright(); });
-  stepsEl.appendChild(b);
-});
+$("bright").addEventListener("input", e => { gBright = +e.target.value; syncBright(); });
 
 function syncMode() {
   rowEls.forEach((el, i) => el.setAttribute("aria-current", i === gMode ? "true" : "false"));
@@ -1251,8 +1239,8 @@ function syncMode() {
   if (el) el.scrollIntoView({ block: "nearest" });
 }
 function syncBright() {
-  [...stepsEl.children].forEach((el, i) => el.setAttribute("aria-pressed", i === gBright ? "true" : "false"));
-  $("brOut").textContent = BRIGHT_LEVELS[gBright] + " / 255";
+  $("bright").value = gBright;
+  $("brOut").textContent = gBright + " / 255";
 }
 
 let playing = true, speed = 1;
@@ -1290,9 +1278,9 @@ badgeBtn.addEventListener("keyup", e => { if (e.key === " " || e.key === "Enter"
 function serviceButton(ts) {
   if (!btnDown) return;
   if (!btnLongFired && ts - btnDownAt >= BTN_LONG_MS) {
-    btnLongFired = true; cycleBrightness(); btnNextRep = ts + BTN_REPEAT_MS;
+    btnLongFired = true; rampBrightness(); btnNextRep = ts + BRIGHT_RAMP_MS;
   } else if (btnLongFired && ts >= btnNextRep) {
-    cycleBrightness(); btnNextRep = ts + BTN_REPEAT_MS;
+    rampBrightness(); btnNextRep = ts + BRIGHT_RAMP_MS;
   }
 }
 

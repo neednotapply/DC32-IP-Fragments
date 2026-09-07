@@ -90,13 +90,18 @@
 // They are also the highest-leverage LEDs on the badge for "the eye is awake".
 
 #define START_MODE         0    // animation to boot into
-#define START_BRIGHT       2    // index into BRIGHT_LEVELS below
+#define START_BRIGHT      45    // where brightness sits at power-on
 #define AUTO_CYCLE_MS      0    // >0 advances animations by itself, e.g. 30000
 
-// These are LOW on purpose. 65 WS2812s at full tilt is ~3.9A, which no coin
-// cell or USB port is going to enjoy. Level 4 is already eye-searing indoors.
-const uint8_t BRIGHT_LEVELS[] = { 12, 24, 45, 80, 130 };
-#define BRIGHT_LEVEL_COUNT (sizeof(BRIGHT_LEVELS) / sizeof(BRIGHT_LEVELS[0]))
+// Brightness is continuous rather than a handful of steps: holding the button
+// ramps it, and the ramp turns round at each end so one button covers both
+// directions. Hold, watch the badge, let go when it looks right.
+//
+// The ceiling is low on purpose. 65 WS2812s at full tilt is ~3.9A, which no coin
+// cell or USB port is going to enjoy, and 160 is already eye-searing indoors.
+#define BRIGHT_MIN         4
+#define BRIGHT_MAX       160
+#define BRIGHT_RAMP_MS    40    // how often the ramp takes a step while held
 
 // Belt-and-braces current cap applied after brightness, so cranking the badge
 // up on a white-heavy animation dims gracefully instead of browning out the
@@ -122,7 +127,6 @@ const uint8_t BRIGHT_LEVELS[] = { 12, 24, 45, 80, 130 };
 
 #define BTN_DEBOUNCE_MS   25
 #define BTN_LONG_MS      700
-#define BTN_REPEAT_MS    450
 
 Adafruit_NeoPixel strip(PIXEL_COUNT, PIXEL_PIN, NEO_RGB + NEO_KHZ800);
 
@@ -140,6 +144,7 @@ uint32_t gNow      = 0;             // millis() at the top of this frame
 uint32_t gFrame    = 0;             // frames since the current animation started
 uint8_t  gMode     = START_MODE;
 uint8_t  gBright   = START_BRIGHT;
+int8_t   gBrightDir = 1;            // which way the next ramp goes
 
 // ---------------------------------------------------------------------------
 // Small integer helpers
@@ -440,7 +445,7 @@ void buildGeometry() {
 void pushFrame() {
   uint8_t  out[PIXEL_COUNT][3];
   uint32_t sum = 0;
-  uint8_t  bright = BRIGHT_LEVELS[gBright];
+  uint8_t  bright = gBright;
 
   for (uint8_t i = 0; i < PIXEL_COUNT; i++) {
     for (uint8_t c = 0; c < 3; c++) {
@@ -1209,30 +1214,23 @@ const Anim ANIMS[] = {
  *  changed without plugging into a serial monitor.
  * ===========================================================================
  */
-enum Feedback { FB_NONE, FB_MODE, FB_BRIGHT };
+enum Feedback { FB_NONE, FB_MODE };
 Feedback gFeedback   = FB_NONE;
 uint32_t gFeedbackTo = 0;
 
+// Only the animation number gets a readout. Brightness deliberately does not:
+// while you are ramping you want to see the animation AT that brightness, and a
+// bar drawn over the top of it tells you less than the badge itself does.
 void showFeedback() {
   fbClear();
-
-  if (gFeedback == FB_BRIGHT) {
-    // A bar around the perimeter, one fifth per level, drawn at the level it
-    // is describing -- so you are looking at the brightness, not a readout.
-    uint8_t lit = (uint8_t)(((uint16_t)(gBright + 1) * PERIM_COUNT) / BRIGHT_LEVEL_COUNT);
-    for (uint8_t r = 0; r < lit; r++) fbSet(PERIM[r], 200, 230, 255);
-    fbFill(GRB_FIRST, PIXEL_COUNT, 120, 150, 200);
-  } else {
-    // One lit pixel per animation number, counted up from the bottom-right
-    // corner, with the corners kept visible for orientation.
-    // Perimeter order, so the count runs down the edge instead of turning off
-    // into a board's leg partway through.
-    for (uint8_t r = 0; r <= gMode && r < PERIM_COUNT; r++) fbSet(PERIM[r], 255, 140, 0);
-    fbAdd(CORNER_BR, 0, 0, 60);
-    fbAdd(CORNER_BL, 0, 0, 60);
-    fbAdd(CORNER_TOP, 0, 0, 60);
-    fbFill(GRB_FIRST, PIXEL_COUNT, 90, 60, 0);
-  }
+  // One lit pixel per animation number, counted up from the bottom-right
+  // corner, with the corners kept visible for orientation. Perimeter order, so
+  // the count runs down the edge instead of turning off into a board's leg.
+  for (uint8_t r = 0; r <= gMode && r < PERIM_COUNT; r++) fbSet(PERIM[r], 255, 140, 0);
+  fbAdd(CORNER_BR, 0, 0, 60);
+  fbAdd(CORNER_BL, 0, 0, 60);
+  fbAdd(CORNER_TOP, 0, 0, 60);
+  fbFill(GRB_FIRST, PIXEL_COUNT, 90, 60, 0);
 }
 
 /* ===========================================================================
@@ -1249,12 +1247,19 @@ void setMode(uint8_t m) {
   Serial.printf("[%u/%u] %s\n", gMode, (unsigned)ANIM_COUNT - 1, ANIMS[gMode].name);
 }
 
-void cycleBrightness() {
-  gBright = (uint8_t)((gBright + 1) % BRIGHT_LEVEL_COUNT);
-  gFeedback   = FB_BRIGHT;
-  gFeedbackTo = gNow + 350;
-  Serial.printf("brightness %u/%u (%u)\n", gBright + 1,
-                (unsigned)BRIGHT_LEVEL_COUNT, BRIGHT_LEVELS[gBright]);
+// One step of the ramp. The step is proportional to where it already is -- about
+// 6% -- because the eye reads brightness as a ratio, not a difference: a jump of
+// 4 is enormous down at 8 and invisible up at 140. That keeps the ramp feeling
+// even the whole way along instead of crawling at the bottom and lurching at the
+// top. Roughly 60 steps end to end, so about two and a half seconds.
+void rampBrightness() {
+  uint8_t step = (uint8_t)(gBright >> 4);
+  if (step < 1) step = 1;
+
+  int16_t v = (int16_t)gBright + (int16_t)gBrightDir * (int16_t)step;
+  if (v >= BRIGHT_MAX)      { v = BRIGHT_MAX; gBrightDir = -1; }   // turn round
+  else if (v <= BRIGHT_MIN) { v = BRIGHT_MIN; gBrightDir =  1; }
+  gBright = (uint8_t)v;
 }
 
 /* ===========================================================================
@@ -1286,17 +1291,20 @@ void serviceButton() {
       btnLongFired = false;
     } else if (!btnLongFired) {
       setMode((uint8_t)(gMode + 1));                 // short press
+    } else {
+      // Report once on release rather than 25 times a second during the ramp.
+      Serial.printf("brightness %u/%u\n", gBright, BRIGHT_MAX);
     }
   }
 
   if (btnStable) {
     if (!btnLongFired && (gNow - btnDownAt) >= BTN_LONG_MS) {
       btnLongFired = true;
-      cycleBrightness();
-      btnNextRep = gNow + BTN_REPEAT_MS;
+      rampBrightness();
+      btnNextRep = gNow + BRIGHT_RAMP_MS;
     } else if (btnLongFired && (int32_t)(gNow - btnNextRep) >= 0) {
-      cycleBrightness();                             // keep holding to keep going
-      btnNextRep = gNow + BTN_REPEAT_MS;
+      rampBrightness();                              // keep holding to keep going
+      btnNextRep = gNow + BRIGHT_RAMP_MS;
     }
   }
 }
@@ -1327,10 +1335,10 @@ void setup() {
   gLastAuto  = gNow;
   setMode(START_MODE);
 
-  Serial.printf("\nFragments: %u animations, %u brightness levels.\n"
+  Serial.printf("\nFragments: %u animations, brightness %u..%u.\n"
                 "  short press = next animation\n"
-                "  hold        = brightness\n",
-                (unsigned)ANIM_COUNT, (unsigned)BRIGHT_LEVEL_COUNT);
+                "  hold        = ramp brightness, turns round at each end\n",
+                (unsigned)ANIM_COUNT, BRIGHT_MIN, BRIGHT_MAX);
 }
 
 void loop() {
