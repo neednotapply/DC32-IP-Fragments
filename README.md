@@ -7,8 +7,10 @@ The original conference sketch is preserved unchanged as `ConferenceCode_v1`.
 
 | | |
 |---|---|
-| `Fragments_NNA/Fragments_NNA.ino` | New firmware. 13 animations, non-blocking, brightness control. |
-| `sim/bench.html` | Test bench. Runs every animation in a browser, same math as the badge. |
+| `Fragments_NNA/Fragments_NNA.ino` | Firmware. 13 animations, persistent output settings, USB serial control. |
+| `sim/bench.html` | Browser simulator, live badge control, and firmware installer. |
+| `firmware/` | Pre-built images and the browser installer manifest. |
+| `tests/button-gestures.cjs` | Host-side tests of the firmware button handler. |
 | `ConferenceCode_v1` | The original conference sketch, untouched. |
 | `DC32 Stand v2.stl` | Printable stand. |
 
@@ -52,19 +54,29 @@ needs Chrome or Edge and an `https` page; the pre-built image lives in
 `firmware/`. Disconnect the bench first if it is already linked, since the two
 cannot hold the same port at once.
 
-To refresh that image after changing the firmware:
+To refresh the images after changing the firmware (using ESP32 core 3.3.11):
 
 ```bash
 arduino-cli compile --fqbn esp32:esp32:esp32 --output-dir /tmp/fw Fragments_NNA
+cp /tmp/fw/Fragments_NNA.ino.bootloader.bin firmware/bootloader.bin
+cp /tmp/fw/Fragments_NNA.ino.partitions.bin firmware/partitions.bin
+cp /tmp/fw/Fragments_NNA.ino.bin firmware/application.bin
+cp ~/.arduino15/packages/esp32/hardware/esp32/3.3.11/tools/partitions/boot_app0.bin firmware/boot_app0.bin
 esptool --chip esp32 merge-bin -o firmware/fragments-esp32.bin \
-  0x1000  /tmp/fw/Fragments_NNA.ino.bootloader.bin \
-  0x8000  /tmp/fw/Fragments_NNA.ino.partitions.bin \
-  0xe000  "$(find ~/.arduino15/packages/esp32 -name boot_app0.bin | head -1)" \
-  0x10000 /tmp/fw/Fragments_NNA.ino.bin
+  0x1000  firmware/bootloader.bin \
+  0x8000  firmware/partitions.bin \
+  0xe000  firmware/boot_app0.bin \
+  0x10000 firmware/application.bin
 ```
 
 Merge only the used region as above — `arduino-cli`'s own `.merged.bin` is padded
 to the full 4 MB flash size, which is eleven times larger for no benefit.
+The browser manifest uses the four separate images, leaving the NVS region at
+`0x9000..0xdfff` untouched during updates. The merged image is for a fresh install:
+writing it at zero also erases settings in that gap. Leave **Erase device**
+unchecked in the browser installer to retain settings. The erase prompt must
+remain enabled: ESP Web Tools otherwise defaults to a full erase for firmware
+without Improv support.
 
 ### From a toolchain
 
@@ -79,11 +91,11 @@ A serial monitor at **115200** baud reports the animation and brightness on ever
 change, which is the quickest way to see whether the button is behaving:
 
 ```
-[0/15] Breathe
+[0/12] Boot Sequence
 Fragments: 13 animations, brightness 4..160.
   short press        = next animation
   hold               = ramp brightness, turns round at each end
-  press, then hold   = ramp colour
+  two long presses, then hold = ramp colour
 ```
 
 ### If it will not connect
@@ -101,7 +113,18 @@ settings will fix. In order of likelihood:
 an ESP32 strapping pin — see [The button is active HIGH](#the-button-is-active-high).
 
 Built clean against esp32 core 3.3.11 with Adafruit NeoPixel 1.15.5:
-308 KB flash (23%), 24 KB RAM (7%).
+338 KB flash (25%), 25 KB RAM (7%).
+
+### Regression checks
+
+Run `node tests/button-gestures.cjs` with Node.js and `g++` installed. It compiles
+the actual firmware button handler on the host and checks debounce, long-press
+thresholds, the three-hold colour sequence, brightness restoration, and resuming
+paused playback. Temporary build files are removed after the test.
+
+For browser changes, check the bench at desktop and mobile sizes, then verify
+connect/disconnect, live frames, control changes, and saved-state confirmation
+with the badge. Hardware timing and reboot persistence still need a real device.
 
 ---
 
@@ -111,12 +134,18 @@ Built clean against esp32 core 3.3.11 with Adafruit NeoPixel 1.15.5:
 |---|---|
 | Short press | Next animation |
 | Hold (after 0.7s) | Ramp brightness, turning round at each end |
-| Press, then press and hold | Ramp the house colour |
+| Two long presses, then a third press held | Ramp the house colour |
 
-The colour gesture undoes its own side effect: the short press that arms it steps
-the animation on, and the hold steps it back, so you land on the animation you
-started from. Two ordinary short presses inside the window still advance twice,
-and a hold after the window has expired falls through to brightness.
+Any badge-button press resumes a paused animation immediately, then follows the
+normal gesture: a short release advances the animation, and holding adjusts
+brightness or colour. This applies to both the physical and browser badge button.
+
+For colour, hold for at least 0.7 seconds and release, do that once more, then
+press a third time and keep holding. Keep each release-to-press gap under 1.2
+seconds. The first two holds adjust brightness normally; when the third hold
+reaches 0.7 seconds, it restores the brightness from before the sequence and
+ramps colour. Animation does not change. A short press or a gap of 1.2 seconds
+resets the sequence. Releasing the colour hold also resets it.
 
 While you are navigating — stepping animations, ramping brightness, ramping
 colour — the whole badge sits lit in the house ink at the set brightness, so a
@@ -175,7 +204,7 @@ at the top, so nothing else needs touching.
 | 11 | Collide | Multicoloured — two travellers head on |
 | 12 | Rainbow | Multicoloured |
 
-**0–8 follow the house colour** — press then hold to change it and they move with
+**0–8 follow the house colour** — two long presses, then hold to change it and they move with
 it. **9–12 are multicoloured by design** and ignore the setting, so they are
 grouped at the end rather than scattered through the list, where the setting
 looked broken every time it landed on one that does not use it.
@@ -197,7 +226,10 @@ own.
 
 ## Settings
 
-Animation, brightness and colour survive a power cycle, kept in NVS.
+Animation, brightness, colour, speed (0.10x to 3.00x), and play/pause survive a
+power cycle. They are stored together in one versioned NVS record. Existing
+firmware's mode/brightness/colour keys are migrated on the first saved change.
+Button timing and the save delay use real time, independent of animation speed.
 
 Writes are held back until things have been quiet for `SETTINGS_SAVE_MS`. NVS
 lives in flash and flash wears out; a brightness ramp changes the value
@@ -205,6 +237,11 @@ twenty-five times a second, so committing each step would put tens of thousands
 of writes through it in an evening of fiddling. Waiting for the quiet turns a
 whole ramp into a single write. A record that points past the end of the
 animation table — after the list shrinks, say — is discarded rather than used.
+The bench shows **Saving to badge...** until the write succeeds, then **Saved on
+badge**. Wait for that confirmation before cutting power, or press **Save now**
+to commit immediately. A failed write stays pending and is retried. LED indices
+and path overlays are browser view preferences, stored locally; they do not
+change the badge's output.
 
 ## Control over USB serial
 
@@ -222,11 +259,24 @@ from `screen`, `minicom` or the Arduino serial monitor:
 | `m <n>` | select animation `n` |
 | `b <n>` | brightness, 4..160 |
 | `h <n>` | hue, 0..65535 |
+| `s <n>` | speed in percent, 10..300 |
+| `p <n>` | play (1) or pause (0) |
+| `c <mode> <bright> <hue> <speed> <playing>` | set all output settings together |
+| `w` | save pending settings immediately |
+| `f 1` / `f 0` | subscribe / unsubscribe to live LED frames |
 
-The badge replies `S <mode> <bright> <hue>` after anything that changes state —
+The badge replies `S <mode> <bright> <hue> <speed> <playing> <dirty>` after anything that changes state —
 including a press of the physical button — so whatever is on the other end stays
-in step. Out-of-range values are refused with `ERR`, since a bad animation index
+in step. `dirty=1` means changes are not saved yet; `dirty=0` confirms the saved
+state. Out-of-range values are refused with `ERR`, since a bad animation index
 would walk off the end of the table.
+
+Live frames are `F <sequence> <animation-ms> <requested-mA> <limited> <hex-RGB>`.
+The payload is 390 hex digits: 65 logical RGB triplets after gamma, brightness
+and current limiting, before the mixed RGB/GRB wire order. Frames are sampled at
+up to 20 Hz to fit 115200 baud. Renew `f 1` every two seconds; the subscription
+expires after five seconds without renewal. Transmission skips frames if the TX
+buffer is busy, keeping animations responsive.
 
 ```
 screen /dev/ttyUSB0 115200
@@ -237,6 +287,11 @@ screen /dev/ttyUSB0 115200
 Open `sim/bench.html` in **Chrome or Edge**, press **Connect badge** and pick the
 badge's port. The page then mirrors the badge both ways: move a slider and the
 badge follows; press the badge's button and the page follows.
+With updated firmware, **Live badge** renders the actual output stream, including
+random effects and physical-button feedback. It has serial/display latency and
+samples at 20 Hz; it is not an optical measurement. An interrupted stream is
+marked instead of silently replaced by a free-running simulation. Older firmware
+still supports mode, brightness and hue; speed and pause are disabled until updated.
 
 Two constraints worth knowing. Web Serial is Chrome/Edge only — Firefox and
 Safari do not implement it. And it needs a top-level page: in a cross-origin

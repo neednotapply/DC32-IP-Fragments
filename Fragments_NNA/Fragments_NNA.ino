@@ -185,7 +185,7 @@ void updateInk() {
 // if you have a board that really is wired active-low.
 #define BUTTON_ACTIVE_HIGH 1
 
-#define COMBO_MS         400    // window after a short press for the colour gesture
+#define COMBO_MS        1200    // maximum release-to-press gap in the long-press combo
 #define BTN_DEBOUNCE_MS   25
 #define BTN_LONG_MS      700
 
@@ -202,6 +202,9 @@ uint8_t  fb[PIXEL_COUNT][3];
 uint8_t  scratch[PIXEL_COUNT];      // per-animation scratch (candle, glitch, ...)
 
 uint32_t gNow      = 0;             // millis() at the top of this frame
+uint32_t gAnimNow  = 0;             // scaled animation time; buttons/NVS use gNow
+uint16_t gSpeed    = 100;           // percent, 10..300
+bool     gPlaying  = true;
 uint32_t gFrame    = 0;             // frames since the current animation started
 uint8_t  gMode     = START_MODE;
 uint8_t  gBright   = START_BRIGHT;
@@ -548,8 +551,10 @@ void floorEye() {
 // ---------------------------------------------------------------------------
 // Output: gamma -> master brightness -> current limit -> byte order -> strip
 // ---------------------------------------------------------------------------
+uint8_t out[PIXEL_COUNT][3];         // final logical RGB, before the GRB wire swap
+uint16_t gRequestedMA = 0;
+bool gLimited = false;
 void pushFrame() {
-  uint8_t  out[PIXEL_COUNT][3];
   uint32_t sum = 0;
   uint8_t  bright = gBright;
 
@@ -565,10 +570,13 @@ void pushFrame() {
     }
   }
 
+  gRequestedMA = (sum * 60UL) / 765UL;
+  gLimited = false;
 #if POWER_LIMIT_MA > 0
   // 765 channel units of white ~= 60mA, so 1 unit ~= 0.0784mA.
   const uint32_t budget = (uint32_t)((POWER_LIMIT_MA * 765UL) / 60UL);
   if (sum > budget) {
+    gLimited = true;
     uint16_t k = (uint16_t)((budget * 256UL) / sum);       // 0..255
     for (uint8_t i = 0; i < PIXEL_COUNT; i++)
       for (uint8_t c = 0; c < 3; c++)
@@ -599,7 +607,7 @@ void pushFrame() {
 // The unfinished breathingBadge() from the original, finished. Deep teal board
 // on a sine, eye running slightly ahead so it leads the inhale.
 void animBreathe() {
-  uint8_t phase = (uint8_t)(gNow / 20);              // ~5.1s per breath
+  uint8_t phase = (uint8_t)(gAnimNow / 20);              // ~5.1s per breath
   uint8_t b     = sin8(phase);
 
   uint8_t v = 14 + scale8(b, 120);
@@ -629,7 +637,7 @@ void animBreathe() {
 // Whole badge drifting through the color wheel, with a slow gradient wrapped
 // around the perimeter so it never reads as one flat wash.
 void animDrift() {
-  uint16_t base = (uint16_t)(gNow * 3);
+  uint16_t base = (uint16_t)(gAnimNow * 3);
 
   // Perimeter order, and the gradient runs against the base so the band travels
   // the other way round the badge.
@@ -641,7 +649,7 @@ void animDrift() {
                (uint16_t)(base - (uint16_t)(f * 16 + 12 + k) * 300), 235, 105);
 
   uint16_t eyeHue = base + 32768;                    // sits opposite the board
-  uint8_t  puls   = 150 + scale8(sin8((uint8_t)(gNow / 22)), 105);
+  uint8_t  puls   = 150 + scale8(sin8((uint8_t)(gAnimNow / 22)), 105);
   fbSetHSV(EYE_C, eyeHue, 60, puls);
   fbSetHSV(EYE_L, eyeHue, 120, scale8(puls, 190));
   fbSetHSV(EYE_R, eyeHue, 120, scale8(puls, 190));
@@ -651,7 +659,7 @@ void animDrift() {
 
 // Three sines beating against each other over the badge's real coordinates.
 void animPlasma() {
-  uint8_t t = (uint8_t)(gNow / 26);
+  uint8_t t = (uint8_t)(gAnimNow / 26);
 
   for (uint8_t i = 0; i < PIXEL_COUNT; i++) {
     int8_t x = pxX(i), y = pxY(i);
@@ -659,7 +667,7 @@ void animPlasma() {
     uint8_t b = sin8((uint8_t)(y * 2 - t * 3));
     uint8_t c = sin8((uint8_t)((x + y) + t));
     uint8_t v = (uint8_t)(((uint16_t)a + b + c) / 3);
-    fbSetHSV(i, (uint16_t)v * 200 + (uint16_t)(gNow), 220, 45 + scale8(v, 190));
+    fbSetHSV(i, (uint16_t)v * 200 + (uint16_t)(gAnimNow), 220, 45 + scale8(v, 190));
   }
 }
 
@@ -776,7 +784,7 @@ void animCollide() {
 // Hue mapped straight onto perimeter position, rotating. The aux LEDs pick up
 // the hue of the nearest corner so the inside of the badge tracks the outside.
 void animRainbow() {
-  uint16_t base = (uint16_t)(gNow * 14);
+  uint16_t base = (uint16_t)(gAnimNow * 14);
 
   // The position term runs against the base, so the band travels clockwise like
   // Drift and the spirals. Negating position rather than time is what reverses a
@@ -845,8 +853,8 @@ void animCorners() {
 // The eye sweeps left and right while a horizontal line scans the triangle.
 // Deliberately sparse -- this one is meant to look like it is watching you.
 void animScanner() {
-  uint8_t look = sin8((uint8_t)(gNow / 14));         // 0 = hard left, 255 = hard right
-  uint8_t line = sin8((uint8_t)(gNow / 9));          // scan height, 0..255
+  uint8_t look = sin8((uint8_t)(gAnimNow / 14));         // 0 = hard left, 255 = hard right
+  uint8_t line = sin8((uint8_t)(gAnimNow / 9));          // scan height, 0..255
 
   int16_t lineY = (int16_t)((uint16_t)line * 100 / 255);
 
@@ -878,7 +886,7 @@ void animScanner() {
 // sweeps out from its corner until the three meet and the eye goes dark.
 void animAperture() {
   const uint16_t CYCLE = 4600;
-  uint16_t t = (uint16_t)(gNow % CYCLE);
+  uint16_t t = (uint16_t)(gAnimNow % CYCLE);
 
   uint8_t open;                                      // 0 stopped all the way down, 255 wide
   uint8_t flash = 0;
@@ -940,7 +948,7 @@ void animChain() {
 
   const uint16_t PERIOD = 3300;
   for (uint8_t k = 0; k < 3; k++) {
-    uint32_t ph   = (gNow + (uint32_t)k * (PERIOD / 3)) % PERIOD;
+    uint32_t ph   = (gAnimNow + (uint32_t)k * (PERIOD / 3)) % PERIOD;
     uint16_t h16  = (uint16_t)((ph * (uint32_t)(RING_COUNT * 16)) / PERIOD);
     uint8_t  head = (uint8_t)((h16 >> 4) % RING_COUNT);
 
@@ -955,7 +963,7 @@ void animChain() {
     }
   }
 
-  uint8_t pulse = sin8((uint8_t)(gNow / 9));
+  uint8_t pulse = sin8((uint8_t)(gAnimNow / 9));
   fbTint(EYE_C, inkR, inkG, inkB, (uint8_t)(170 + scale8(pulse, 85)));
   fbTint(EYE_L, inkR, inkG, inkB, 120);
   fbTint(EYE_R, inkR, inkG, inkB, 120);
@@ -986,7 +994,7 @@ void animChain() {
 void animVortex() {
   static uint16_t spin;
   if (gFrame == 0) spin = 0;
-  uint8_t rate = sin8((uint8_t)(gNow / 110));
+  uint8_t rate = sin8((uint8_t)(gAnimNow / 110));
   spin = (uint16_t)(spin + (uint16_t)((int16_t)rate - 96));
   uint8_t t = (uint8_t)(spin >> 3);
 
@@ -1003,7 +1011,7 @@ void animRadar() {
   if (gFrame == 0) fbClear();
   fbFadeAll(206);
 
-  uint8_t sweep = (uint8_t)(gNow / 8);
+  uint8_t sweep = (uint8_t)(gAnimNow / 8);
   for (uint8_t i = 0; i < PIXEL_COUNT; i++) {
     uint8_t d = (uint8_t)(sweep - SPIN(polA[i]));    // 0 at the beam, growing behind
     if (d > 30) continue;
@@ -1101,7 +1109,7 @@ void animMatrix() {
     }
   }
 
-  uint8_t cursor = 32 + scale8(sin8((uint8_t)(gNow / 8)), 200);
+  uint8_t cursor = 32 + scale8(sin8((uint8_t)(gAnimNow / 8)), 200);
   fbTint(EYE_C, inkR, inkG, inkB, cursor);
   fbTint(EYE_L, inkR, inkG, inkB, scale8(cursor, 120));
   fbTint(EYE_R, inkR, inkG, inkB, scale8(cursor, 120));
@@ -1118,7 +1126,7 @@ void animBoot() {
   // every loop here walks PERIM rather than the full strand, and floorEye()
   // does not reach the tails, so nothing lifts them off zero.
   const uint16_t CYCLE = 5600;
-  uint16_t t = (uint16_t)(gNow % CYCLE);
+  uint16_t t = (uint16_t)(gAnimNow % CYCLE);
 
   fbClear();
 
@@ -1226,32 +1234,49 @@ const Anim ANIMS[] = {
 
 Preferences prefs;
 bool     gDirty   = false;
+bool     gOutputDirty = false;
 uint32_t gDirtyAt = 0;
+struct SavedSettings {
+  uint16_t version, hue, speed;
+  uint8_t mode, bright, playing, reserved;
+};
 
 void settingsLoad() {
   prefs.begin("fragments", true);                    // read-only
   gMode   = prefs.getUChar ("mode",   START_MODE);
   gBright = prefs.getUChar ("bright", START_BRIGHT);
   gHue    = prefs.getUShort("hue",    DEFAULT_HUE);
+  SavedSettings saved = {};
+  if (prefs.getBytesLength("settings") == sizeof(saved) &&
+      prefs.getBytes("settings", &saved, sizeof(saved)) == sizeof(saved) &&
+      saved.version == 1 && saved.playing <= 1) {
+    gMode = saved.mode; gBright = saved.bright; gHue = saved.hue;
+    gSpeed = saved.speed; gPlaying = saved.playing;
+  }
   prefs.end();
 
   // Anything out of range means a corrupt or stale record -- an animation count
   // that shrank, say. Fall back rather than index off the end of the table.
   if (gMode >= ANIM_COUNT)                          gMode   = START_MODE;
   if (gBright < BRIGHT_MIN || gBright > BRIGHT_MAX) gBright = START_BRIGHT;
+  if (gSpeed < 10 || gSpeed > 300) gSpeed = 100;
 }
 
-inline void settingsTouch() { gDirty = true; gDirtyAt = gNow; }
+inline void settingsTouch() { gDirty = true; gDirtyAt = gNow; gOutputDirty = true; }
+
+void settingsSave() {
+  if (!gDirty) return;
+  SavedSettings saved = {1, gHue, gSpeed, gMode, gBright, (uint8_t)gPlaying, 0};
+  bool ok = prefs.begin("fragments", false);
+  if (ok) ok = prefs.putBytes("settings", &saved, sizeof(saved)) == sizeof(saved);
+  prefs.end();
+  gDirty = !ok;
+  if (!ok) { gDirtyAt = gNow; Serial.println("ERR save"); }
+  serReport();
+}
 
 void settingsService() {
-  if (!gDirty || (gNow - gDirtyAt) < SETTINGS_SAVE_MS) return;
-  prefs.begin("fragments", false);
-  prefs.putUChar ("mode",   gMode);
-  prefs.putUChar ("bright", gBright);
-  prefs.putUShort("hue",    gHue);
-  prefs.end();
-  gDirty = false;
-  Serial.printf("saved: animation %u, brightness %u, hue %u\n", gMode, gBright, gHue);
+  if (gDirty && (gNow - gDirtyAt) >= SETTINGS_SAVE_MS) settingsSave();
 }
 
 /* ===========================================================================
@@ -1351,9 +1376,11 @@ uint32_t btnEdgeAt    = 0;
 uint32_t btnDownAt    = 0;
 uint32_t btnNextRep   = 0;
 bool     btnLongFired = false;
-bool     btnCombo      = false;     // this hold is the second half of press-then-hold
-bool     btnComboArmed = false;
-uint32_t btnComboArm   = 0;
+bool     btnCombo      = false;     // third hold, after two completed long presses
+uint8_t  btnLongCount  = 0;
+uint32_t btnReleasedAt = 0;
+uint8_t  btnStartBright = START_BRIGHT;
+int8_t   btnStartBrightDir = 1;
 
 void serviceButton() {
   // Normalised to pressed / not pressed at the top, so nothing below has to
@@ -1364,30 +1391,30 @@ void serviceButton() {
   if (raw != btnStable && (gNow - btnEdgeAt) >= BTN_DEBOUNCE_MS) {
     btnStable = raw;
     if (btnStable) {
+      if (!gPlaying) { gPlaying = true; settingsTouch(); }
       btnDownAt    = gNow;
       btnLongFired = false;
-      btnCombo     = btnComboArmed && (gNow - btnComboArm) < COMBO_MS;
+      if (gNow - btnReleasedAt >= COMBO_MS) btnLongCount = 0;
+      if (btnLongCount == 0) { btnStartBright = gBright; btnStartBrightDir = gBrightDir; }
+      btnCombo = btnLongCount == 2;
     } else if (!btnLongFired) {
       setMode((uint8_t)(gMode + 1));                 // short press
-      btnComboArmed = true;                          // arms the colour gesture
-      btnComboArm   = gNow;
+      btnLongCount = 0;
     } else {
       // Report once on release rather than 25 times a second during the ramp.
       if (btnCombo) Serial.printf("hue %u\n", gHue);
       else          Serial.printf("brightness %u/%u\n", gBright, BRIGHT_MAX);
+      btnLongCount = btnCombo ? 0 : btnLongCount + 1;
+      btnReleasedAt = gNow;
     }
   }
 
   if (btnStable) {
     if (!btnLongFired && (gNow - btnDownAt) >= BTN_LONG_MS) {
       btnLongFired  = true;
-      btnComboArmed = false;
       if (btnCombo) {
-        // The short press that armed this gesture already stepped the animation
-        // on. Put it back -- press-then-hold is meant to change colour, not
-        // mode -- and do it without the mode readout, since nothing moved.
-        setMode((uint8_t)(gMode + ANIM_COUNT - 1));
-        gFeedback = FB_NONE;
+        // The first two holds were brightness gestures until this one confirmed colour.
+        gBright = btnStartBright; gBrightDir = btnStartBrightDir;
       }
       if (btnCombo) rampHue(); else rampBrightness();
       btnNextRep = gNow + BRIGHT_RAMP_MS;
@@ -1412,12 +1439,17 @@ void serviceButton() {
  *  screen or minicom as readily as by the test bench through the browser's Web
  *  Serial API:
  *
- *    ?        report state       -> S <mode> <bright> <hue>
+ *    ?        report state       -> S <mode> <bright> <hue> <speed> <playing> <dirty>
  *    l        list animations    -> L <index> <name> per line, then LEND
  *    n        next animation
  *    m <n>    select animation
  *    b <n>    brightness, BRIGHT_MIN..BRIGHT_MAX
  *    h <n>    hue, 0..65535
+ *    s <n>    speed, 10..300 percent
+ *    p <n>    playing, 0 or 1
+ *    c <mode> <bright> <hue> <speed> <playing>    set all settings atomically
+ *    w        save pending settings
+ *    f <n>    live RGB stream, 0 or 1; renew every two seconds
  *
  *  Every change emits an S line, including one made with the physical button,
  *  so whatever is on the other end stays in step with the badge.
@@ -1427,10 +1459,36 @@ char     serBuf[40];
 uint8_t  serLen    = 0;
 uint8_t  serMode   = 255, serBright = 0;
 uint16_t serHue    = 0;
+uint16_t serSpeed = 0;
+bool serPlaying = true;
+bool serStreaming = false;
+uint32_t serLeaseAt = 0, serFrameAt = 0, serSequence = 0;
 
 void serReport() {
-  Serial.printf("S %u %u %u\n", (unsigned)gMode, (unsigned)gBright, (unsigned)gHue);
+  Serial.printf("S %u %u %u %u %u %u\n", (unsigned)gMode, (unsigned)gBright,
+                (unsigned)gHue, (unsigned)gSpeed, (unsigned)gPlaying, (unsigned)gDirty);
   serMode = gMode; serBright = gBright; serHue = gHue;
+  serSpeed = gSpeed; serPlaying = gPlaying;
+}
+
+// At most 20 snapshots/sec (~8.5 KB/sec at 115200 baud). A stalled client
+// loses snapshots, never animation time. Renew the subscription every 2 seconds.
+void serFrameService() {
+  if (!serStreaming || gNow - serLeaseAt > 5000 || gNow - serFrameAt < 50) return;
+  char packet[450];
+  int len = snprintf(packet, sizeof(packet), "F %lu %lu %u %u ",
+                     (unsigned long)serSequence++, (unsigned long)gAnimNow,
+                     gRequestedMA, (unsigned)gLimited);
+  const char hex[] = "0123456789abcdef";
+  for (uint8_t i = 0; i < PIXEL_COUNT; i++) {
+    for (uint8_t c = 0; c < 3; c++) {
+      packet[len++] = hex[out[i][c] >> 4];
+      packet[len++] = hex[out[i][c] & 15];
+    }
+  }
+  packet[len++] = '\n';
+  serFrameAt = gNow;
+  if (Serial.availableForWrite() >= len) Serial.write((const uint8_t *)packet, len);
 }
 
 void serCommand(char *line) {
@@ -1439,10 +1497,39 @@ void serCommand(char *line) {
   while (*arg == ' ') arg++;
   bool hasArg = (*arg >= '0' && *arg <= '9');
   long v      = atol(arg);
+  char *end = nullptr;
+  if (hasArg) {
+    v = strtol(arg, &end, 10);
+    while (*end == ' ') end++;
+    if (*end && c != 'c') { Serial.println("ERR argument"); return; }
+  }
 
   switch (c) {
     case '?':
       serReport(); return;
+    case 'f':
+      if (!hasArg || v > 1) { Serial.println("ERR stream"); return; }
+      serStreaming = v; serLeaseAt = gNow; return;
+    case 'w':
+      settingsSave(); serReport(); return;
+    case 'c': {
+      long m, b, h, s, p; char extra;
+      if (sscanf(arg, "%ld %ld %ld %ld %ld %c", &m, &b, &h, &s, &p, &extra) != 5 ||
+          m < 0 || m >= ANIM_COUNT || b < BRIGHT_MIN || b > BRIGHT_MAX ||
+          h < 0 || h > 65535 || s < 10 || s > 300 || p < 0 || p > 1) {
+        Serial.println("ERR settings"); return;
+      }
+      if (m != gMode) setMode((uint8_t)m);
+      if (gBright != b || gHue != h || gSpeed != s || gPlaying != (bool)p) settingsTouch();
+      gBright = b; gHue = h; gSpeed = s; gPlaying = p; updateInk();
+      break;
+    }
+    case 's':
+      if (!hasArg || v < 10 || v > 300) { Serial.println("ERR speed"); return; }
+      if (gSpeed != v) { gSpeed = v; settingsTouch(); } break;
+    case 'p':
+      if (!hasArg || v > 1) { Serial.println("ERR playing"); return; }
+      if (gPlaying != (bool)v) { gPlaying = v; settingsTouch(); } break;
     case 'l': case 'L':
       for (uint8_t i = 0; i < ANIM_COUNT; i++)
         Serial.printf("L %u %s\n", (unsigned)i, ANIMS[i].name);
@@ -1478,7 +1565,8 @@ void serService() {
     if (serLen < sizeof(serBuf) - 1) serBuf[serLen++] = ch;
   }
   // The button moves the same state; report it so the far end keeps up.
-  if (gMode != serMode || gBright != serBright || gHue != serHue) serReport();
+  if (gMode != serMode || gBright != serBright || gHue != serHue ||
+      gSpeed != serSpeed || gPlaying != serPlaying) serReport();
 }
 
 /* ===========================================================================
@@ -1487,8 +1575,11 @@ void serService() {
  */
 uint32_t gLastFrame = 0;
 uint32_t gLastAuto  = 0;
+uint32_t gLastTick = 0, gLastFeedbackFrame = 0;
+uint16_t gClockRemainder = 0;
 
 void setup() {
+  Serial.setTxBufferSize(1024);
   Serial.begin(115200);
   delay(50);
 
@@ -1505,6 +1596,7 @@ void setup() {
   strip.show();
 
   gNow       = millis();
+  gLastTick  = gNow;
   gLastAuto  = gNow;
 
   settingsLoad();                                  // pick up where we left off
@@ -1515,15 +1607,22 @@ void setup() {
   Serial.printf("\nFragments: %u animations, brightness %u..%u.\n"
                 "  short press        = next animation\n"
                 "  hold               = ramp brightness, turns round at each end\n"
-                "  press, then hold   = ramp colour\n",
+                "  two long presses, then hold = ramp colour\n",
                 (unsigned)ANIM_COUNT, BRIGHT_MIN, BRIGHT_MAX);
 
-  Serial.println("  serial            = ? l n  m<n> b<n> h<n>");
+  Serial.println("  serial            = ? l n w  m<n> b<n> h<n> s<n> p<0|1> f<0|1>");
   serReport();
 }
 
 void loop() {
   gNow = millis();
+  uint32_t elapsed = gNow - gLastTick;
+  gLastTick = gNow;
+  if (gPlaying) {
+    uint64_t scaled = (uint64_t)elapsed * gSpeed + gClockRemainder;
+    gAnimNow += scaled / 100;
+    gClockRemainder = scaled % 100;
+  }
 
   serviceButton();
   settingsService();
@@ -1536,8 +1635,11 @@ void loop() {
 #endif
 
   const Anim &a = ANIMS[gMode];
-  if (gNow - gLastFrame >= a.frameMs) {
-    gLastFrame = gNow;
+  if ((gFeedback != FB_NONE && gNow - gLastFeedbackFrame >= a.frameMs) ||
+      (gPlaying && gAnimNow - gLastFrame >= a.frameMs) ||
+      (gFeedback == FB_NONE && gFrame == 0) || gOutputDirty) {
+    gLastFrame = gAnimNow;
+    gLastFeedbackFrame = gNow;
 
     if (gFeedback != FB_NONE) {
       if ((int32_t)(gNow - gFeedbackTo) >= 0) {
@@ -1549,14 +1651,16 @@ void loop() {
       }
     }
 
-    if (gFeedback == FB_NONE) {
+    if (gFeedback == FB_NONE && (gPlaying || gFrame == 0 || gOutputDirty)) {
       a.render();
       gFrame++;
     }
 
     floorEye();                                      // the power LED never gets the last word
     pushFrame();
+    gOutputDirty = false;
   }
+  serFrameService();
 
   // Hand the scheduler a slot. loop() is a FreeRTOS task like any other, and
   // spinning here without yielding starves whatever else wants to run -- the

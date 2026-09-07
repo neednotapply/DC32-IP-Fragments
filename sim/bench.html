@@ -1,21 +1,24 @@
+<!doctype html>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Fragments Test Bench</title>
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<script type="module" src="https://unpkg.com/esp-web-tools@10/dist/web/install-button.js?module"></script>
+<script type="module" src="https://unpkg.com/esp-web-tools@10.1.1/dist/web/install-button.js?module"></script>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@500;600;700&family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500&display=swap">
 <style>
   /* A deliberately single-theme page: this is a dark chamber for watching LEDs
      emit light. Rendering emission on a white ground would defeat the point,
      so every color is painted explicitly and nothing is inherited from the host. */
   :root {
-    --pcb:        #0a100e;   /* solder mask, near-black with a green bias */
-    --pcb-deep:   #060a09;
-    --panel:      #111a16;
-    --panel-hi:   #172420;
+    --pcb:        #101214;
+    --pcb-deep:   #101214;
+    --panel:      #171a1e;
+    --panel-hi:   #22272c;
     --trace:      #1e2c26;   /* hairlines, like copper under mask */
     --trace-lit:  #2c4239;
     --silk:       #d7ded3;   /* silkscreen white */
-    --silk-dim:   #78877c;   /* green-biased grey, chosen not inherited */
-    --silk-faint: #4a564e;
+    --silk-dim:   #939d97;
+    --silk-faint: #78847d;
     --gold:       #c9a227;   /* ENIG pad gold - the one accent */
     --gold-soft:  #8a7020;
     --warn:       #d4763a;
@@ -45,9 +48,9 @@
   .brand h1 { font-family: var(--f-display); font-weight: 700; font-size: 26px;
               letter-spacing: .01em; margin: 0; text-wrap: balance; }
   .brand p  { margin: 4px 0 0; color: var(--silk-dim); max-width: 62ch; font-size: 13px; }
-  .hw { display: flex; gap: 22px; font-family: var(--f-mono); font-size: 11px;
+  .hw { display: flex; flex-wrap: wrap; gap: 12px 22px; font-family: var(--f-mono); font-size: 11px;
         color: var(--silk-dim); }
-  .hw div { display: flex; flex-direction: column; gap: 1px; }
+  .hw div { display: flex; flex: 0 0 auto; flex-direction: column; gap: 1px; white-space: nowrap; }
   .hw b { color: var(--silk); font-weight: 500; font-size: 13px;
           font-variant-numeric: tabular-nums; }
   .hw span { text-transform: uppercase; letter-spacing: .11em; color: var(--silk-faint); }
@@ -59,8 +62,7 @@
 
   /* ---- stage ---- */
   .stage { display: flex; flex-direction: column; gap: 14px; min-width: 0; }
-  .chamber { position: relative; background:
-      radial-gradient(120% 90% at 50% 34%, #101a16 0%, var(--pcb-deep) 72%);
+  .chamber { position: relative; background: var(--pcb-deep);
       border: 1px solid var(--trace); border-radius: 3px; overflow: hidden; }
   canvas { display: block; width: 100%; height: auto; }
 
@@ -72,11 +74,12 @@
   .probe.on { opacity: 1; }
   .probe b { color: var(--gold); font-weight: 600; }
 
-  .nowplaying { position: absolute; left: 12px; top: 11px; font-family: var(--f-display);
+  .nowplaying { position: absolute; left: 12px; right: 12px; top: 11px;
+                display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 8px; font-family: var(--f-display);
                 font-size: 13px; letter-spacing: .07em; text-transform: uppercase;
                 color: var(--silk); text-shadow: 0 0 14px rgba(0,0,0,.9); }
   .nowplaying em { font-style: normal; color: var(--silk-faint); font-family: var(--f-mono);
-                   letter-spacing: 0; text-transform: none; margin-left: 8px; font-size: 11px; }
+                   letter-spacing: 0; text-transform: none; font-size: 11px; }
 
   /* ---- key + transport under the stage ---- */
   /* Flex, not a two-column grid. An `auto` grid track holds its intrinsic
@@ -116,6 +119,8 @@
          padding: 8px 14px; border-radius: 2px; white-space: nowrap;
          transition: color .12s, border-color .12s; }
   .ctl:hover { color: var(--silk); border-color: var(--trace-lit); }
+  .ctl:disabled, input:disabled { opacity: .45; cursor: not-allowed; }
+  .settings-state { font: 11px var(--f-mono); color: var(--silk-dim); }
   .ctl.pressed { color: var(--gold); border-color: var(--gold-soft); }
 
   .rail { display: flex; flex-direction: column; gap: 18px; min-width: 0; }
@@ -195,10 +200,7 @@
   <header>
     <div class="brand">
       <h1>Fragments Test Bench</h1>
-      <p>Every animation in <code style="font-family:var(--f-mono);font-size:12px">Fragments_NNA.ino</code>,
-         running the same integer math the ESP32 runs — same sine table, same
-         <span style="font-family:var(--f-mono)">ColorHSV</span>, same gamma curve, same current limiter.
-         Tune it here, then flash it.</p>
+      <p>DC32 Illuminati Party badge</p>
     </div>
     <div class="hw">
       <div><span>Boards</span><b>3 &times; 20</b></div>
@@ -213,7 +215,7 @@
     <section class="stage">
       <div class="chamber">
         <canvas id="cv" width="1100" height="1000" aria-label="Simulated badge"></canvas>
-        <div class="nowplaying"><span id="npName">Breathe</span><em id="npFam">ambient</em></div>
+        <div class="nowplaying"><span id="npName">Breathe</span><em id="npFam">ambient</em><em id="frameSource">Simulation</em></div>
         <div class="probe" id="probe"></div>
       </div>
 
@@ -226,11 +228,11 @@
         </div>
         <div class="transport">
           <button class="ctl" id="playBtn">Pause</button>
-          <button class="ctl" id="badgeBtn" title="Click for next animation, hold for brightness, click-then-hold for colour">Badge button</button>
+          <button class="ctl" id="badgeBtn" title="Click for next animation; hold for brightness; two long presses, then a third hold for colour">Badge button</button>
           <button class="ctl" id="serBtn" hidden>Connect badge</button>
           <span class="link" id="serLink" hidden>not linked</span>
           <esp-web-install-button manifest="../firmware/manifest.json">
-            <button class="ctl" slot="activate" title="Flash the current firmware straight from this page">Flash badge</button>
+            <button class="ctl" id="flashBtn" slot="activate" title="Leave Erase device unchecked to keep badge settings">Flash badge</button>
             <span class="link" slot="unsupported">flashing needs Chrome or Edge</span>
             <span class="link" slot="not-allowed">flashing needs an https page</span>
           </esp-web-install-button>
@@ -257,10 +259,12 @@
           </div>
           <div>
             <label class="row" for="hue">House colour <output id="hueOut">18900</output></label>
-            <input type="range" id="hue" min="0" max="65535" step="256" value="18900">
+            <input type="range" id="hue" min="0" max="65535" step="1" value="18900">
           </div>
           <label class="toggle"><input type="checkbox" id="idx"> Show LED indices</label>
           <label class="toggle"><input type="checkbox" id="paths"> Trace each board&rsquo;s 20 LEDs</label>
+          <div class="transport"><span class="settings-state" id="saveState" role="status">Local preview</span>
+            <button class="ctl" id="saveBtn" hidden>Save now</button></div>
         </div>
       </div>
 
@@ -280,14 +284,10 @@
       </div>
 
       <div class="block">
-        <h2>Layout assumptions</h2>
+        <h2>Badge</h2>
         <div class="body">
           <p class="note" style="margin:0">
-            Three boards of 20 LEDs, chained <code>DOUT</code>&nbsp;&rarr;&nbsp;<code>DIN</code>.
-            Each carries one corner at its local position 3, so the seams land three LEDs
-            <em>before</em> each corner &mdash; between 19|20, 39|40 and 59|0 &mdash; and the
-            boards pinwheel rather than meeting at the points. Positions for the five inner
-            LEDs are measured off photographs; the perimeter is treated as three straight runs.
+            Three fragments, 65 LEDs. Photo-based geometry; light output is a display approximation.
           </p>
         </div>
       </div>
@@ -297,7 +297,7 @@
   <footer>
     <span>DC32 &middot; Illuminati Party&reg; &ldquo;Fragments&rdquo;</span>
     <span>13 animations &middot; brightness 4&ndash;160</span>
-    <span>Press: next &middot; Hold: brightness &middot; Press+hold: colour</span>
+    <span>Press: next &middot; Hold: brightness &middot; Two long presses, then hold: colour</span>
   </footer>
 </div>
 
@@ -429,6 +429,7 @@ function spillTail(headP, r, g, b) {
 
 /* --- geometry ------------------------------------------------------------- */
 const ringX = new Int8Array(RING), ringY = new Int8Array(RING);
+const displayX = new Float64Array(RING), displayY = new Float64Array(RING);
 const auxX = [0, 32, -32, -29, 28], auxY = [41, 41, 41, 50, 51];   // by strand index 60..64
 
 /* Polar coordinates about the eye, for every LED including the five inside.
@@ -479,6 +480,7 @@ const TAIL_A1 = -60, TAIL_A2 = -60, EDGE_STEPS = 16;
 
   const eyeX = EYE_CX / 100, eyeY = (EYE_CY / 100) * TRI_ASPECT;
   for (let i = 0; i < RING; i++) {
+    displayX[i] = px[i]; displayY[i] = py[i] / TRI_ASPECT;
     ringX[i] = Math.round(px[i] * 100);
     ringY[i] = Math.round(py[i] / TRI_ASPECT * 100);
   }
@@ -1030,118 +1032,253 @@ const halfW = 424, triH = halfW * TRI_ASPECT;
 const originX = W / 2, apexY = (H - triH) / 2, baseY = apexY + triH;
 const sx = nx => originX + nx * halfW;
 const sy = ny => baseY - ny * triH;
+// Photo landmarks: the eye tips sit about 35% of the height above the base.
+const eyeX = sx(0), eyeY = sy(.35), eyeW = halfW * .40, eyeH = eyeW * .55;
+const irisR = eyeW * .46, irisY = eyeY - eyeW * .06;
+const plateY = eyeY + 15, plateR = halfW * .46;
+const eyeFixtures = [
+  [eyeX, irisY - 5], [eyeX + eyeW * .97, eyeY], [eyeX - eyeW * .97, eyeY],
+  [eyeX - plateR * .84, plateY - plateR * .52],
+  [eyeX + plateR * .84, plateY - plateR * .52]
+];
 
 const LED = [];
 for (let i = 0; i < N; i++) {
-  LED.push({ i, x: sx(pxX(i) / 100), y: sy(pxY(i) / 100),
+  LED.push({ i, x: sx(i < RING ? displayX[i] : pxX(i) / 100),
+             y: sy(i < RING ? displayY[i] : pxY(i) / 100),
              pad: i < RING ? 10 : (i < 63 ? 12 : 8) });
+  if (i >= GRB_FIRST) [LED[i].x, LED[i].y] = eyeFixtures[i - GRB_FIRST];
 }
 const cenX = originX, cenY = sy(1 / 3);
 
 /* The board is static, so it is painted once into an offscreen canvas. */
 const board = document.createElement("canvas");
 board.width = W; board.height = H;
+function eyeShape(c) {
+  c.beginPath(); c.moveTo(eyeX - eyeW, eyeY);
+  // A low, gently flattened upper lid overlaps the iris instead of exposing its full disc.
+  c.bezierCurveTo(eyeX - eyeW * .68, eyeY - eyeH * .40, eyeX - eyeW * .34, eyeY - eyeH * .58, eyeX, eyeY - eyeH * .58);
+  c.bezierCurveTo(eyeX + eyeW * .34, eyeY - eyeH * .58, eyeX + eyeW * .68, eyeY - eyeH * .40, eyeX + eyeW, eyeY);
+  c.bezierCurveTo(eyeX + eyeW * .58, eyeY + eyeH * 1.28, eyeX - eyeW * .58, eyeY + eyeH * 1.28, eyeX - eyeW, eyeY);
+  c.closePath();
+}
+function pupilShape(c) {
+  c.beginPath(); c.moveTo(eyeX, irisY - 43);
+  c.bezierCurveTo(eyeX + 23, irisY - 19, eyeX + 20, irisY + 23, eyeX, irisY + 44);
+  c.bezierCurveTo(eyeX - 20, irisY + 23, eyeX - 23, irisY - 19, eyeX, irisY - 43);
+  c.closePath();
+}
 (function paintBoard() {
   const b = board.getContext("2d");
-  const tri = () => { b.beginPath(); b.moveTo(sx(0), sy(1)); b.lineTo(sx(1), sy(0)); b.lineTo(sx(-1), sy(0)); b.closePath(); };
-
-  const g = b.createLinearGradient(0, apexY, 0, baseY);
-  g.addColorStop(0, "#0f1714"); g.addColorStop(1, "#070c0a");
-  tri(); b.fillStyle = g; b.fill();
-  b.strokeStyle = "#28382f"; b.lineWidth = 2; b.stroke();
-
-  // The three boards, each a chevron wrapping one corner, pinwheeled together.
-  const tints = ["#0d1613", "#0a120f", "#101a16"];
-  for (let f = 0; f < FRAG_COUNT; f++) {
-    b.beginPath(); b.moveTo(cenX, cenY);
-    for (let k = 0; k < FRAG_LEN; k++) {
-      const l = LED[f * FRAG_LEN + k];
-      const dx = l.x - cenX, dy = l.y - cenY, m = Math.hypot(dx, dy) || 1;
-      b.lineTo(l.x + dx / m * 17, l.y + dy / m * 17);
+  const mr = halfW * .60;
+  const silhouette = new Path2D();
+  silhouette.moveTo(sx(0), apexY - 18);
+  silhouette.lineTo(sx(1) + 24, baseY + 18);
+  silhouette.lineTo(sx(-1) - 24, baseY + 18); silhouette.closePath();
+  b.fillStyle = "#19171f"; b.fill(silhouette);
+  b.save(); b.clip(silhouette);
+  b.strokeStyle = "#8b8c69"; b.lineWidth = 1.5;
+  const circle = (x, y, r) => { b.beginPath(); b.arc(x, y, r, 0, Math.PI * 2); b.stroke(); };
+  const line = (x1, y1, x2, y2) => { b.beginPath(); b.moveTo(x1, y1); b.lineTo(x2, y2); b.stroke(); };
+  // Each fragment carries its own offset arc. The joins near twelve, four
+  // and eight o'clock step outward, giving the dial its pinwheel outline.
+  for (let f = 0; f < 3; f++) {
+    const start = (-86 + f * 120) * Math.PI / 180;
+    const end = start + Math.PI * 2 / 3;
+    const offsetAngle = start - Math.PI / 6;
+    const point = (a, k) => ({
+      x: eyeX + .93 * (Math.cos(a) * mr * k + Math.cos(offsetAngle) * 27 * k ** 3),
+      y: eyeY + Math.sin(a) * mr * k + Math.sin(offsetAngle) * 27 * k ** 3
+    });
+    const arc = (k, reverse = false) => {
+      for (let i = 0; i <= 80; i++) {
+        const a = reverse ? end - (end - start) * i / 80 : start + (end - start) * i / 80;
+        const p = point(a, k);
+        b.lineTo(p.x, p.y);
+      }
+    };
+    const segment = (inner, outer) => {
+      b.beginPath(); const p = point(start, outer); b.moveTo(p.x, p.y);
+      arc(outer); arc(inner, true); b.closePath();
+    };
+    segment(.64, 1.055); b.fillStyle = "#19171f"; b.fill();
+    b.strokeStyle = "#8b8c69"; b.lineWidth = 1.5;
+    for (const k of [1.04, 1, .97, .93, .89, .82, .78, .69, .66]) {
+      b.beginPath(); const p = point(start, k); b.moveTo(p.x, p.y); arc(k); b.stroke();
     }
-    b.closePath(); b.fillStyle = tints[f]; b.fill();
+    b.strokeStyle = "#a2a27e"; b.lineWidth = 1.6;
+    for (let i = 0; i < 8; i++) {
+      const a = start + (end - start) * (i + .5) / 8;
+      const p = point(a, .85), q = point(a, 1.03);
+      line(p.x, p.y, q.x, q.y);
+      const left = point(a - .03, .89), tip = point(a, .95), right = point(a + .03, .89);
+      b.beginPath(); b.moveTo(left.x, left.y); b.quadraticCurveTo(tip.x, tip.y, right.x, right.y); b.stroke();
+    }
+    // Short edges stop at the dial, rather than forming pie wedges through the eye.
+    for (const a of [start, end]) {
+      const p = point(a, .66), q = point(a, 1.045);
+      line(p.x, p.y, q.x, q.y);
+    }
   }
-  for (let f = 0; f < FRAG_COUNT; f++) {          // seams, three LEDs shy of each corner
-    const a = LED[(f * FRAG_LEN + RING - 1) % RING], c = LED[f * FRAG_LEN];
-    const mx = (a.x + c.x) / 2, my = (a.y + c.y) / 2;
-    const dx = mx - cenX, dy = my - cenY, m = Math.hypot(dx, dy) || 1;
-    b.beginPath();
-    b.moveTo(cenX + dx / m * 46, cenY + dy / m * 46);
-    b.lineTo(mx + dx / m * 15, my + dy / m * 15);
-    b.strokeStyle = "#2e4238"; b.lineWidth = 1.5; b.stroke();
+  // Three small corner eyes and geometric scrollwork, rotated with each board.
+  for (let f = 0; f < 3; f++) {
+    const corner = LED[f * 20 + 3];
+    b.save(); b.translate(corner.x, corner.y);
+    b.rotate(Math.atan2(cenY - corner.y, cenX - corner.x) - Math.PI / 2);
+    b.beginPath(); b.moveTo(0, -10); b.lineTo(-85, 164); b.lineTo(85, 164); b.closePath(); b.stroke();
+    circle(0, 4, 15);
+    b.beginPath(); b.arc(0, 4, 30, .2, Math.PI - .2); b.stroke();
+    line(-22, 47, 22, 47); line(-46, 85, 48, 101);
+    line(-48, 91, 50, 107); line(-22, 47, 0, 121); line(22, 47, 0, 121);
+    line(0, -12, 0, 121);
+    b.beginPath(); b.moveTo(-72, 124); b.quadraticCurveTo(0, 116, 72, 124);
+    b.quadraticCurveTo(35, 142, 0, 159); b.quadraticCurveTo(-35, 142, -72, 124); b.stroke();
+    for (const r of [5, 10, 17, 23]) circle(0, 139, r);
+    for (let i = 0; i < 18; i++) {
+      const a = i * Math.PI / 9;
+      circle(Math.cos(a) * 20, 139 + Math.sin(a) * 20, 1);
+    }
+    for (const sign of [-1, 1]) {
+      b.save(); b.scale(sign, 1);
+      line(8, 180, 82, 252); line(82, 180, 8, 252);
+      circle(44, 216, 34);
+      b.beginPath(); b.moveTo(8, 170); b.bezierCurveTo(90, 172, 6, 280, 54, 258);
+      b.bezierCurveTo(80, 245, 25, 232, 40, 255); b.stroke();
+      line(0, 20, 24, 260); b.restore();
+    }
+    b.restore();
   }
-
-  b.save(); b.translate(originX, cenY); b.scale(0.94, 0.94); b.translate(-originX, -cenY);
-  tri(); b.strokeStyle = "#1a271f"; b.lineWidth = 1; b.stroke();
+  // The pale engraved plate is separate from the three stepped PCB arcs.
+  b.beginPath(); b.ellipse(eyeX, plateY, plateR, plateR * .98, 0, 0, Math.PI * 2);
+  b.fillStyle = "#b6b49a"; b.fill(); b.strokeStyle = "#343540"; b.lineWidth = 5; b.stroke();
+  b.save(); b.clip();
+  for (const k of [.97, .93, .76, .72, .64]) {
+    b.beginPath(); b.ellipse(eyeX, plateY, plateR * k, plateR * .98 * k, 0, 0, Math.PI * 2);
+    b.strokeStyle = "#33343a"; b.lineWidth = 1; b.stroke();
+  }
+  for (let i = 0; i < 240; i++) {
+    const a = i * Math.PI / 120;
+    for (const ring of [.95, .74]) {
+      const len = i % 5 ? .014 : .032;
+      line(eyeX + Math.cos(a) * plateR * (ring - len), plateY + Math.sin(a) * plateR * .98 * (ring - len),
+           eyeX + Math.cos(a) * plateR * (ring + len), plateY + Math.sin(a) * plateR * .98 * (ring + len));
+    }
+  }
+  for (const flip of [1, -1]) {
+    b.save(); b.translate(eyeX, plateY); b.scale(1, flip);
+    for (let j = -2; j <= 2; j++) {
+      const a = -Math.PI / 2 + j * .30;
+      for (let i = -10; i <= 10; i++) {
+        const theta = a + i * .009, r = plateR * (.59 + (j % 2 ? .025 : 0));
+        line(Math.cos(theta) * (r - 5), Math.sin(theta) * (r - 5), Math.cos(theta) * (r + 8), Math.sin(theta) * (r + 8));
+      }
+    }
+    b.lineWidth = 3;
+    b.beginPath(); b.moveTo(-plateR * .34, -plateR * .46); b.lineTo(-plateR * .27, -plateR * .51);
+    b.lineTo(plateR * .27, -plateR * .51); b.lineTo(plateR * .34, -plateR * .46); b.stroke();
+    b.fillStyle = "#30343a"; b.fillRect(-7, -plateR * .54, 14, 18); b.restore();
+  }
+  b.restore();
+  for (const i of [TOP_L, TOP_R]) {
+    b.save(); b.translate(LED[i].x, LED[i].y); b.rotate(i === TOP_L ? .55 : -.55);
+    b.fillStyle = "#262d38"; b.fillRect(-5, -18, 10, 36); b.restore();
+  }
+  eyeShape(b); b.fillStyle = "#68727b"; b.fill();
+  b.save(); b.clip();
+  b.beginPath(); b.arc(eyeX, irisY, irisR, 0, Math.PI * 2);
+  b.fillStyle = "#252633"; b.fill(); b.strokeStyle = "#b6b49a"; b.lineWidth = 2; b.stroke();
+  // Trace the broad, connected shutter ink seen around the pupil in the photo.
+  b.save(); b.translate(eyeX, irisY); b.scale(irisR, irisR);
+  b.beginPath(); b.moveTo(-.55, -.82); b.lineTo(-.50, -.25);
+  b.quadraticCurveTo(-.10, -.45, .03, -.78);
+  b.quadraticCurveTo(.70, -.45, .94, -.14); b.lineTo(.49, -.38);
+  b.quadraticCurveTo(.55, .48, .19, .89); b.lineTo(.30, .28);
+  b.quadraticCurveTo(-.25, .73, -.73, .76);
+  b.quadraticCurveTo(-.29, .58, -.11, .35);
+  b.quadraticCurveTo(-.85, .08, -.95, -.40);
+  b.quadraticCurveTo(-.73, -.03, -.45, .05);
+  b.quadraticCurveTo(-.59, -.45, -.55, -.82);
+  b.closePath(); b.fillStyle = "#b6b49a"; b.fill(); b.restore();
+  pupilShape(b);
+  b.fillStyle = "#59626a"; b.fill();
+  b.restore();
+  eyeShape(b); b.strokeStyle = "#252633"; b.lineWidth = 5; b.stroke();
+  for (let i = 0; i < 13; i++) {
+    const x = eyeX - 40 + i * 13, y = eyeY + eyeH * 1.06;
+    b.beginPath(); b.arc(x, y, 3.5, 0, Math.PI * 2); b.fillStyle = "#828c91"; b.fill();
+    b.strokeStyle = "#545b60"; b.lineWidth = 1; b.stroke();
+  }
   b.restore();
 
-  // The mandala. It is wider than the triangle it sits in and breaks past both
-  // slanted edges, which is why the badge outline is not a plain triangle.
-  const ex = sx(0), ey = sy(0.40), mr = halfW * 0.772;
-  b.strokeStyle = "#1d2b23"; b.lineWidth = 1.5;
-  for (const k of [1, 0.90, 0.62, 0.55]) { b.beginPath(); b.arc(ex, ey, mr * k, 0, 7); b.stroke(); }
-
-  // Silkscreen eye, drawn around LEDs 60-62 the way it sits on the board.
-  const eex = sx(0), eey = sy(EYE_CY / 100), ew = halfW * 0.40, eh = ew * 0.30;
-  b.strokeStyle = "#2b3d31"; b.lineWidth = 2;
-  b.beginPath();
-  b.moveTo(eex - ew, eey); b.quadraticCurveTo(eex, eey - eh * 2.1, eex + ew, eey);
-  b.quadraticCurveTo(eex, eey + eh * 2.1, eex - ew, eey);
-  b.stroke();
-  b.beginPath(); b.ellipse(eex, eey, eh * 0.34, eh * 0.95, 0, 0, 7); b.stroke();
-
-  // Solder pads, so an unlit LED is still a visible component.
+  // Square LED packages along the perimeter; the five diffused LEDs are internal.
   for (const l of LED) {
-    b.beginPath(); b.arc(l.x, l.y, l.pad, 0, 7);
-    b.fillStyle = "#0b100d"; b.fill();
-    b.strokeStyle = l.i >= GRB_FIRST ? "#4a3d1c" : "#26382f";
-    b.lineWidth = 1.4; b.stroke();
+    if (l.i >= GRB_FIRST) continue;
+    b.save(); b.translate(l.x, l.y); b.rotate(Math.PI / 4);
+    b.fillStyle = "#46454a"; b.fillRect(-5, -5, 10, 10);
+    b.strokeStyle = "#9c9877"; b.lineWidth = 1; b.strokeRect(-6, -6, 12, 12); b.restore();
   }
 })();
 
 let showIdx = false, showPaths = false, hoverLED = -1;
+// Display exposure, independent of the badge's PWM/current budget.
+const displayChannel = v => Math.round(255 * Math.pow(1 - Math.exp(-v / 255 * 7), 1 / 2.2));
+
+function drawEyeLight() {
+  for (const i of [TOP_L, TOP_R]) {
+    const rgb = [0, 1, 2].map(c => displayChannel(out[i * 3 + c]));
+    if (!rgb.some(Boolean)) continue;
+    ctx.save(); ctx.translate(LED[i].x, LED[i].y); ctx.rotate(i === TOP_L ? .55 : -.55);
+    ctx.fillStyle = `rgb(${rgb.join(",")})`; ctx.shadowColor = ctx.fillStyle; ctx.shadowBlur = 22;
+    ctx.fillRect(-4, -17, 8, 34); ctx.restore();
+  }
+  ctx.save(); eyeShape(ctx); ctx.clip();
+  ctx.globalCompositeOperation = "screen";
+  // Mask the iris out of the translucent eye diffuser.
+  const mask = new Path2D(); mask.rect(0, 0, W, H);
+  mask.arc(eyeX, irisY, irisR + 2, 0, Math.PI * 2);
+  ctx.clip(mask, "evenodd");
+  for (const i of [EYE_L, EYE_R, TOP_L, TOP_R]) {
+    const r = displayChannel(out[i * 3]), g = displayChannel(out[i * 3 + 1]), b = displayChannel(out[i * 3 + 2]);
+    if (!r && !g && !b) continue;
+    const x = LED[i].x, y = eyeY + 20, rad = eyeW * 1.7;
+    const light = ctx.createRadialGradient(x, y, 0, x, y, rad);
+    light.addColorStop(0, `rgba(${r},${g},${b},.8)`);
+    light.addColorStop(1, `rgba(${r},${g},${b},0)`);
+    ctx.fillStyle = light; ctx.fillRect(eyeX - eyeW, eyeY - eyeH, eyeW * 2, eyeH * 3);
+  }
+  ctx.restore();
+  ctx.save(); eyeShape(ctx); ctx.clip(); pupilShape(ctx); ctx.clip();
+  const k = EYE_C * 3;
+  ctx.fillStyle = `rgb(${displayChannel(out[k])},${displayChannel(out[k + 1])},${displayChannel(out[k + 2])})`;
+  ctx.fillRect(eyeX - 24, irisY - 44, 48, 90); ctx.restore();
+}
 
 function draw() {
   ctx.clearRect(0, 0, W, H);
   ctx.drawImage(board, 0, 0);
 
   ctx.globalCompositeOperation = "lighter";
+  drawEyeLight();
   for (let i = 0; i < N; i++) {
     const r = out[i * 3], g = out[i * 3 + 1], b = out[i * 3 + 2];
     const lin = Math.max(r, g, b) / 255;
     if (lin < 0.004) continue;
-    // LED emission is linear in PWM; the display is not. Undo the screen's
-    // gamma so a dim pixel here looks as dim as it will on the badge.
-    const sr = (255 * Math.pow(r / 255, 1 / 2.2)) | 0;
-    const sg = (255 * Math.pow(g / 255, 1 / 2.2)) | 0;
-    const sb = (255 * Math.pow(b / 255, 1 / 2.2)) | 0;
+    // Tone-map linear PWM into a brighter emissive display preview.
+    const sr = displayChannel(r), sg = displayChannel(g), sb = displayChannel(b);
     const { x, y, pad } = LED[i];
+    if (i >= GRB_FIRST) continue;
 
-    // 63 and 64 are aimed down into the white of the eye, so they throw a broad
-    // pool of light below themselves instead of reading as points.
-    if (i === TOP_L || i === TOP_R) {
-      ctx.save();
-      ctx.translate(x, y + pad * 4.2);
-      ctx.scale(1.35, 1.0);
-      const wr = pad * (5 + 9 * Math.sqrt(lin));
-      const wg = ctx.createRadialGradient(0, 0, 0, 0, 0, wr);
-      wg.addColorStop(0, "rgba(" + sr + "," + sg + "," + sb + ",0.30)");
-      wg.addColorStop(0.45, "rgba(" + sr + "," + sg + "," + sb + ",0.10)");
-      wg.addColorStop(1, "rgba(" + sr + "," + sg + "," + sb + ",0)");
-      ctx.fillStyle = wg;
-      ctx.beginPath(); ctx.arc(0, 0, wr, 0, 7); ctx.fill();
-      ctx.restore();
-    }
-
-    const rad = pad * (2.0 + 7 * Math.sqrt(lin));
+    const rad = pad * (2.5 + 11 * Math.sqrt(lin));
     const gr = ctx.createRadialGradient(x, y, 0, x, y, rad);
-    gr.addColorStop(0, "rgba(" + sr + "," + sg + "," + sb + ",0.50)");
-    gr.addColorStop(0.28, "rgba(" + sr + "," + sg + "," + sb + ",0.15)");
+    gr.addColorStop(0, "rgba(" + sr + "," + sg + "," + sb + ",0.85)");
+    gr.addColorStop(0.28, "rgba(" + sr + "," + sg + "," + sb + ",0.25)");
     gr.addColorStop(1, "rgba(" + sr + "," + sg + "," + sb + ",0)");
     ctx.fillStyle = gr;
     ctx.beginPath(); ctx.arc(x, y, rad, 0, 7); ctx.fill();
     ctx.fillStyle = "rgb(" + sr + "," + sg + "," + sb + ")";
     ctx.beginPath(); ctx.arc(x, y, pad * 0.6, 0, 7); ctx.fill();
+    ctx.fillStyle = `rgba(255,255,255,${Math.min(.85, Math.sqrt(lin) * 2)})`;
+    ctx.fillRect(x - 2.5, y - 2.5, 5, 5);
   }
   ctx.globalCompositeOperation = "source-over";
 
@@ -1225,48 +1362,75 @@ ANIMS.forEach((a, i) => {
 $("bright").addEventListener("input", e => { gBright = +e.target.value; syncBright(); });
 
 function syncMode() {
+  serQueue("m", gMode);
   rowEls.forEach((el, i) => el.setAttribute("aria-current", i === gMode ? "true" : "false"));
   $("npName").textContent = ANIMS[gMode].name;
   $("npFam").textContent = ANIMS[gMode].fam.toLowerCase() + " · " + ANIMS[gMode].ms + "ms";
   const el = rowEls[gMode];
-  if (el) el.scrollIntoView({ block: "nearest" });
+  if (el) animList.scrollTop = Math.max(0, el.offsetTop - animList.offsetTop - animList.clientHeight / 2);
 }
 function syncBright() {
+  serQueue("b", gBright);
   $("bright").value = gBright;
   $("brOut").textContent = gBright + " / 255";
 }
 
 let playing = true, speed = 1;
-$("playBtn").addEventListener("click", e => {
+function syncPlaying() {
+  $("playBtn").textContent = playing ? "Pause" : "Play";
+  $("playBtn").classList.toggle("pressed", !playing);
+  serQueue("p", +playing);
+}
+$("playBtn").addEventListener("click", () => {
   playing = !playing;
-  e.currentTarget.textContent = playing ? "Pause" : "Play";
-  e.currentTarget.classList.toggle("pressed", !playing);
+  syncPlaying();
 });
+function syncSpeed() {
+  $("spd").value = Math.round(speed * 100);
+  $("spdOut").textContent = speed.toFixed(2) + "×";
+  serQueue("s", Math.round(speed * 100));
+}
 $("spd").addEventListener("input", e => {
   speed = e.target.value / 100;
-  $("spdOut").textContent = speed.toFixed(2) + "×";
+  syncSpeed();
 });
-function syncHue() { $("hue").value = gHue; $("hueOut").textContent = gHue; }
+function syncHue() { $("hue").value = gHue; $("hueOut").textContent = gHue; serQueue("h", gHue); }
 $("hue").addEventListener("input", e => { gHue = +e.target.value; updateInk(); syncHue(); });
-$("idx").addEventListener("change", e => { showIdx = e.target.checked; draw(); });
-$("paths").addEventListener("change", e => { showPaths = e.target.checked; draw(); });
+function saveView() {
+  try { localStorage.setItem("fragments-view", JSON.stringify({ indices: showIdx, paths: showPaths })); } catch (_) {}
+}
+try {
+  const view = JSON.parse(localStorage.getItem("fragments-view") || "{}");
+  $("idx").checked = showIdx = view.indices === true;
+  $("paths").checked = showPaths = view.paths === true;
+} catch (_) {}
+$("idx").addEventListener("change", e => { showIdx = e.target.checked; saveView(); draw(); });
+$("paths").addEventListener("change", e => { showPaths = e.target.checked; saveView(); draw(); });
 
 /* Emulated badge button, running the firmware's own thresholds against real
    time so the hold-to-repeat feels the way it will in your hand. */
 const badgeBtn = $("badgeBtn");
 let btnDown = false, btnDownAt = 0, btnLongFired = false, btnNextRep = 0;
-let btnCombo = false, btnComboArmed = false, btnComboArm = 0;
-const COMBO_MS = 400;
+let btnCombo = false, btnLongCount = 0, btnReleasedAt = 0;
+let btnStartBright = gBright, btnStartBrightDir = gBrightDir;
+const COMBO_MS = 1200;
 function pressStart() {
+  if (btnDown) return;
+  if (!playing) { playing = true; syncPlaying(); }
   btnDown = true; btnDownAt = performance.now(); btnLongFired = false;
-  btnCombo = btnComboArmed && (btnDownAt - btnComboArm) < COMBO_MS;
+  if (btnDownAt - btnReleasedAt >= COMBO_MS) btnLongCount = 0;
+  if (btnLongCount === 0) { btnStartBright = gBright; btnStartBrightDir = gBrightDir; }
+  btnCombo = btnLongCount === 2;
   badgeBtn.classList.add("pressed");
 }
 function pressEnd() {
   if (!btnDown) return;
   if (!btnLongFired) {
     setMode(gMode + 1, true);
-    btnComboArmed = true; btnComboArm = performance.now();   // arms the colour gesture
+    btnLongCount = 0;
+  } else {
+    btnLongCount = btnCombo ? 0 : btnLongCount + 1;
+    btnReleasedAt = performance.now();
   }
   btnDown = false; badgeBtn.classList.remove("pressed");
 }
@@ -1279,11 +1443,9 @@ badgeBtn.addEventListener("keyup", e => { if (e.key === " " || e.key === "Enter"
 function serviceButton(ts) {
   if (!btnDown) return;
   if (!btnLongFired && ts - btnDownAt >= BTN_LONG_MS) {
-    btnLongFired = true; btnComboArmed = false;
+    btnLongFired = true;
     if (btnCombo) {
-      // The short press that armed this already stepped the animation on; put it
-      // back, since the gesture means colour, not mode.
-      setMode(gMode - 1, false); gFeedback = 0;
+      gBright = btnStartBright; gBrightDir = btnStartBrightDir; syncBright();
     }
     if (btnCombo) rampHue(); else rampBrightness();
     btnNextRep = ts + BRIGHT_RAMP_MS;
@@ -1342,10 +1504,17 @@ function tick(ts) {
   if (dt > 120) dt = 120;
 
   serviceButton(ts);
+  if (serReady && serExtended) {
+    if (liveFrameDirty) { draw(); fpsCount++; liveFrameDirty = false; }
+    if (ts - serFrameAt > 1500) $("frameSource").textContent = "Waiting for LED stream";
+    updateTelemetry(ts);
+    return;
+  }
   if (playing) now += dt * speed;
 
   const a = ANIMS[gMode];
-  if (now - lastFrameAt >= a.ms) {
+  if (now - lastFrameAt >= a.ms || previewDirty) {
+    previewDirty = false;
     lastFrameAt = now;
     if (gFeedback) {
       if (now >= gFeedbackTo) { gFeedback = 0; fbClear(); gFrame = 0; }
@@ -1364,103 +1533,259 @@ function tick(ts) {
  * This badge's radio is unusable -- its 40 MHz crystal runs ~154 ppm fast,
  * putting the carrier about 375 kHz off, well outside what WiFi or BLE will
  * tolerate -- so the badge is driven down the USB lead instead. The protocol is
- * line-based ASCII: we send "m <n>", "b <n>" and "h <n>", and the badge answers
- * with "S <mode> <bright> <hue>" whenever anything changes, including a press
- * of its physical button. So the badge reaches this page as readily as the
- * other way round.
+ * line-based ASCII: "c" updates all output settings together, "S" reports
+ * settings and save status, and "F" carries final LED frames. Physical-button
+ * changes arrive through the same state reports.
  *
  * Web Serial is Chrome and Edge only, and needs a user gesture to pick a port.
  *
- * The preview keeps running locally either way. It is the same integer maths the
- * badge is running, so what you see here is what the badge is doing rather than
- * a video of it.                                                              */
+ * Extended firmware reports saved settings and streams final RGB snapshots.
+ * While linked, those snapshots own the canvas, including randomized effects.
+ * Legacy firmware keeps the local simulation and basic three-setting control. */
 const BAUD = 115200;
 let serPort = null, serWriter = null, serFrom = false;
-let serSent = { m: -1, b: -1, h: -1 };
+let serAbort = null, serReadTask = null;
+let serReady = false, serExtended = false, serBusy = false;
+let serPending = {}, serFlight = null, serFrameAt = 0, serSaveRequested = false;
+let serQueryTimer = null, serConnectTimer = null;
+let previewDirty = false, liveFrameDirty = false, serSaveError = false;
 const serEnc = new TextEncoder();
 
-function serStatus(text, on) {
-  const el = $("serLink");
-  el.textContent = text; el.classList.toggle("on", !!on);
-  $("serBtn").classList.toggle("live", !!on);
-  $("serBtn").textContent = on ? "Linked" : "Connect badge";
+function serQueue(key, value) {
+  previewDirty = true;
+  if (serFrom || !serReady || (!serExtended && (key === "s" || key === "p"))) return;
+  serPending[key] = value;
+  $("saveState").textContent = "Unsaved changes";
 }
 
-function serAdopt(m, b, h) {
+function serControls() {
+  const waiting = !!serPort && !serReady;
+  for (const el of [...rowEls, $("bright"), $("hue"), $("badgeBtn")]) el.disabled = waiting;
+  $("spd").disabled = $("playBtn").disabled = waiting || (serReady && !serExtended);
+  $("saveBtn").hidden = !serReady || !serExtended;
+  $("flashBtn").disabled = !!serPort;
+  $("flashBtn").title = serPort ? "Disconnect badge before flashing" : "Leave Erase device unchecked to keep badge settings";
+}
+
+function serStatus(text, on, detail) {
+  const el = $("serLink");
+  el.textContent = text; el.classList.toggle("on", !!on);
+  el.title = detail || "";                         // full error on hover
+  $("serBtn").classList.toggle("live", !!on);
+  $("serBtn").textContent = on ? "Disconnect" : "Connect badge";
+}
+
+function serAdopt(m, b, h, s, p, dirty) {
+  if (m >= ANIMS.length || b < BRIGHT_MIN || b > BRIGHT_MAX || h > 65535 ||
+      (s !== undefined && (s < 10 || s > 300 || p > 1 || dirty > 1))) return;
+  const first = !serReady;
+  serReady = true; serExtended = s !== undefined;
+  clearTimeout(serConnectTimer);
+  const state = { m, b, h, s, p };
+  if (serFlight && Object.entries(serFlight.values).every(([k, v]) => state[k] === v)) serFlight = null;
+  const adopt = key => !(key in serPending) && !(serFlight && key in serFlight.values);
   serFrom = true;                                  // do not echo this straight back
-  if (m !== gMode && m < ANIMS.length) setMode(m, false);
-  if (b !== gBright) { gBright = b; syncBright(); }
-  if (h !== gHue)    { gHue = h; updateInk(); syncHue(); }
+  if (adopt("m") && m !== gMode) setMode(m, false);
+  if (adopt("b")) { gBright = b; syncBright(); }
+  if (adopt("h")) { gHue = h; updateInk(); syncHue(); }
+  if (serExtended) {
+    if (adopt("s")) { speed = s / 100; syncSpeed(); }
+    if (adopt("p")) { playing = !!p; syncPlaying(); }
+  } else if (first) {
+    speed = 1; playing = true; syncSpeed(); syncPlaying();
+  }
   serFrom = false;
-  serSent = { m: gMode, b: gBright, h: gHue };
+  serControls();
+  serStatus(serExtended ? "linked" : "linked - firmware update available", true);
+  if (!Object.keys(serPending).length && !serFlight) {
+    if (!dirty) serSaveError = false;
+    $("saveState").textContent = serExtended ? (dirty ? (serSaveError ? "Save failed - retry Save now" : "Saving to badge...") : "Saved on badge") : "Badge auto-save (legacy)";
+  }
+  if (first) {
+    $("frameSource").textContent = serExtended ? "Waiting for LED stream" : "Simulation (legacy firmware)";
+    if (serExtended) serSend("f 1");
+  }
+}
+
+function serLine(line) {
+  const state = line.match(/^S (\d+) (\d+) (\d+)(?: (\d+) (\d+) (\d+))?$/);
+  if (state) { serAdopt(...state.slice(1).map(v => v === undefined ? undefined : +v)); return; }
+  const frame = line.match(/^F (\d+) (\d+) (\d+) ([01]) ([0-9a-fA-F]{390})$/);
+  if (frame && serReady && serExtended) {
+    for (let i = 0; i < out.length; i++) out[i] = parseInt(frame[5].slice(i * 2, i * 2 + 2), 16);
+    now = +frame[2]; lastFrameAt = now;
+    reqMA = +frame[3]; limited = frame[4] === "1";
+    serFrameAt = performance.now();
+    $("frameSource").textContent = "Live badge · 20 Hz";
+    liveFrameDirty = true;
+  }
+  if (line.startsWith("ERR")) {
+    if (line === "ERR save") serSaveError = true;
+    $("saveState").textContent = line === "ERR save" ? "Save failed - retry Save now" : "Badge rejected command";
+    serFlight = null;
+  }
 }
 
 async function serSend(cmd) {
   if (!serWriter) return;
   try { await serWriter.write(serEnc.encode(cmd + "\n")); }
-  catch (e) { serStatus("write failed", false); }
+  catch (e) { void serRelease("write failed", String(e)); }
 }
 
-async function serRead(port) {
-  const dec = new TextDecoderStream();
-  port.readable.pipeTo(dec.writable).catch(() => {});
-  const rd = dec.readable.getReader();
-  let buf = "";
-  try {
-    for (;;) {
-      const { value, done } = await rd.read();
-      if (done) break;
-      buf += value;
-      let i;
-      while ((i = buf.indexOf("\n")) >= 0) {
-        const line = buf.slice(0, i).trim();
-        buf = buf.slice(i + 1);
-        const m = line.match(/^S (\d+) (\d+) (\d+)$/);
-        if (m) serAdopt(+m[1], +m[2], +m[3]);
+/* ESP32 reset can produce a recoverable UART framing error. Web Serial gives
+ * us a new readable stream after that error; release the old reader and retry.
+ * Cancelling the active reader also releases the lock before closing the port. */
+async function serRead(port, signal) {
+  let buf = "", fault = null, failures = 0;
+  while (port.readable && !signal.aborted) {
+    const rd = port.readable.getReader();
+    const dec = new TextDecoder();
+    const cancel = () => { void rd.cancel().catch(() => {}); };
+    signal.addEventListener("abort", cancel, { once: true });
+    try {
+      for (;;) {
+        const { value, done } = await rd.read();
+        if (done) break;
+        failures = 0;
+        buf += dec.decode(value, { stream: true });
+        let i;
+        while ((i = buf.indexOf("\n")) >= 0) {
+          const line = buf.slice(0, i).trim();
+          buf = buf.slice(i + 1);
+          serLine(line);
+        }
+        if (buf.length > 4096) buf = "";
       }
-      if (buf.length > 4096) buf = "";              // never grow without bound
+    } catch (e) {
+      fault = e; buf = "";
+      if (++failures >= 5) break;
+    } finally {
+      signal.removeEventListener("abort", cancel);
+      rd.releaseLock();
     }
-  } catch (e) { /* the port went away */ }
-  serPort = null; serWriter = null;
-  serStatus("dropped", false);
+    if (!signal.aborted) await new Promise(resolve => setTimeout(resolve, 20));
+  }
+  if (!signal.aborted && serPort === port) void serRelease("connection lost", fault ? String(fault) : "Serial input closed");
+}
+
+async function serRelease(msg, detail) {
+  serReady = false;
+  clearTimeout(serQueryTimer); clearTimeout(serConnectTimer);
+  try { serAbort && serAbort.abort(); }  catch (e) {}
+  try { serWriter && serWriter.releaseLock(); } catch (e) {}
+  serWriter = null;
+  try { serReadTask && await serReadTask; } catch (e) {}
+  serReadTask = null;
+  try { serPort && await serPort.close(); } catch (e) {}
+  serPort = null; serAbort = null;
+  serPending = {}; serFlight = null; serExtended = false; serSaveRequested = false; serSaveError = false;
+  serControls();
+  $("frameSource").textContent = "Simulation";
+  $("saveState").textContent = "Local preview";
+  serStatus(msg || "not linked", false, detail);
+}
+
+async function serOpen(port) {
+  try {
+    await port.open({ baudRate: BAUD, bufferSize: 65536 });
+  } catch (e) {
+    if (e && e.name === "InvalidStateError") {
+      // Left open by an earlier attempt on this page. Close it and retry once.
+      try { await port.close(); } catch (_) {}
+      await port.open({ baudRate: BAUD, bufferSize: 65536 });
+    } else throw e;
+  }
 }
 
 async function serConnect() {
-  if (serPort) {                                   // already linked: let go
-    try { serWriter && serWriter.releaseLock(); await serPort.close(); } catch (e) {}
-    serPort = null; serWriter = null;
-    serStatus("not linked", false);
+  if (serBusy) return;
+  if (serPort) {
+    serBusy = true;
+    if (serReady && serExtended) {
+      const deadline = performance.now() + 3500;
+      while ((Object.keys(serPending).length || serFlight) && serReady && performance.now() < deadline) {
+        await serFlush();
+        await new Promise(resolve => setTimeout(resolve, 25));
+      }
+      await serSend("w"); await serSend("f 0");
+    }
+    await serRelease(); serBusy = false; return;
+  }
+  serBusy = true;
+  let port;
+  try {
+    serStatus("choosing", false);
+    port = await navigator.serial.requestPort();
+  } catch (e) {
+    serStatus("no badge chosen", false, String(e));
+    serBusy = false;
     return;
   }
   try {
-    serStatus("choosing", false);
-    const port = await navigator.serial.requestPort();
-    await port.open({ baudRate: BAUD });
-    serPort = port;
+    await serOpen(port);
+    serPort  = port;
+    serAbort = new AbortController();
     serWriter = port.writable.getWriter();
-    serStatus("linked", true);
-    serRead(port);
+    serReadTask = serRead(port, serAbort.signal);
+    serStatus("reading badge", true); serControls();
     // Opening the port toggles DTR/RTS, which resets the board. Give it a
     // moment to boot, then ask for state -- it also reports state on its own
     // at startup, so either answer gets us in step.
-    setTimeout(() => serSend("?"), 1600);
-  } catch (err) {
-    serPort = null; serWriter = null;
-    serStatus(err && err.name === "NotFoundError" ? "no badge chosen" : "failed", false);
+    await serSend("?");
+    serQueryTimer = setTimeout(() => serSend("?"), 1600);
+    serConnectTimer = setTimeout(() => {
+      if (!serReady) void serRelease("badge not responding - check power");
+    }, 5000);
+  } catch (e) {
+    // "failed" on its own tells nobody anything. Name the actual fault.
+    const name = (e && e.name) || "Error";
+    const why =
+      name === "NetworkError"      ? "port busy - close other serial apps" :
+      name === "InvalidStateError" ? "port already open - reload the page"  :
+      name === "SecurityError"     ? "blocked - needs https"                :
+      name.replace(/Error$/, "").toLowerCase() || "failed";
+    try { await port.close(); } catch (_) {}
+    serPort = null; serWriter = null; serAbort = null;
+    serStatus(why, false, name + ": " + ((e && e.message) || ""));
+    console.error("serial connect failed:", e);
   }
+  serBusy = false;
 }
 
-setInterval(async () => {
-  if (!serWriter || serFrom) return;
-  if (gMode   !== serSent.m) { serSent.m = gMode;   await serSend("m " + gMode); }
-  if (gBright !== serSent.b) { serSent.b = gBright; await serSend("b " + gBright); }
-  if (gHue    !== serSent.h) { serSent.h = gHue;    await serSend("h " + gHue); }
-}, 150);
+async function serFlush() {
+  if (!serWriter || !serReady || serFrom || serFlight) return;
+  const keys = Object.keys(serPending);
+  if (keys.length) {
+    const values = serExtended ? { m: gMode, b: gBright, h: gHue, s: Math.round(speed * 100), p: +playing }
+                               : { [keys[0]]: serPending[keys[0]] };
+    for (const key of Object.keys(values)) delete serPending[key];
+    serFlight = { values, at: performance.now() };
+    await serSend(serExtended ? "c " + [values.m, values.b, values.h, values.s, values.p].join(" ")
+                             : keys[0] + " " + values[keys[0]]);
+  } else if (serSaveRequested) {
+    serSaveRequested = false; await serSend("w");
+  }
+}
+setInterval(() => {
+  if (serFlight && performance.now() - serFlight.at > 3000) {
+    void serRelease("badge stopped acknowledging settings"); return;
+  }
+  void serFlush();
+}, 100);
+setInterval(() => {
+  if (serReady && serExtended) { serSend("f 1"); serSend("?"); }
+}, 2000);
+$("saveBtn").addEventListener("click", () => { serSaveRequested = true; void serFlush(); });
 
 if (navigator.serial) {
   $("serBtn").hidden = false;
   $("serLink").hidden = false;
   $("serBtn").addEventListener("click", serConnect);
+  // Unplugging the badge should not leave the page believing it is linked.
+  navigator.serial.addEventListener("disconnect", ev => {
+    if (serPort && ev.target === serPort) serRelease("unplugged");
+  });
+  window.addEventListener("beforeunload", () => { try { serAbort && serAbort.abort(); } catch (e) {} });
   serStatus("not linked", false);
 }
 
