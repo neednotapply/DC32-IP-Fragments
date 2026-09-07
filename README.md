@@ -137,28 +137,23 @@ at the top, so nothing else needs touching.
 | # | Name | Family |
 |---|---|---|
 | 0 | Boot Sequence | What the badge wakes up to — outline only, legs dark |
-| 1 | Breathe | Ambient — outline and eye breathing together |
-| 2 | Drift | Ambient |
-| 3 | Plasma | Ambient |
-| 4 | Radar | One beam sweeping, with a decaying wake |
-| 5 | Collide | Two travellers head on; the eye holds their two colours |
-| 6 | Rainbow | Perimeter motion |
-| 7 | Corner Pulse | Perimeter motion |
-| 8 | Scanner | Eye-driven |
-| 9 | Aperture | Fragments — the boards close like iris blades, then the flash fires |
-| 10 | Fragment Chain | Fragments — the `DOUT`→`DIN` data path, made visible |
-| 11 | Vortex | Spiral — three arms winding inward, one per board |
-| 12 | Matrix Rain | The badge as a wall, drops falling through it |
+| 1 | Breathe | Outline and eye breathing together |
+| 2 | Vortex | Three arms winding inward, one per board |
+| 3 | Radar | One beam sweeping, with a decaying wake |
+| 4 | Corner Pulse | Pulses out from each corner, meeting at the midpoints |
+| 5 | Scanner | The eye tracks while a line sweeps |
+| 6 | Aperture | The boards close like iris blades, then the flash fires |
+| 7 | Fragment Chain | The `DOUT`→`DIN` data path, made visible |
+| 8 | Matrix Rain | The badge as a wall, drops falling through it |
+| 9 | Drift | Multicoloured |
+| 10 | Plasma | Multicoloured |
+| 11 | Collide | Multicoloured — two travellers head on |
+| 12 | Rainbow | Multicoloured |
 
-**Boot Sequence, Breathe, Radar, Scanner, Aperture, Fragment Chain and Matrix
-Rain all follow the house colour** — press then hold to change it and they move
-with it. The rest are deliberately multi-coloured: Drift, Rainbow and Vortex
-sweep the wheel, Collide gives each traveller its own hue, Plasma and Corner
-Pulse cycle. Those ignore the setting by design.
-
-Vortex and Corner Pulse are single-hued at any given instant but drift through
-the wheel over time, so they are treated as cycling rather than fixed. Say the
-word if they should follow the house colour instead.
+**0–8 follow the house colour** — press then hold to change it and they move with
+it. **9–12 are multicoloured by design** and ignore the setting, so they are
+grouped at the end rather than scattered through the list, where the setting
+looked broken every time it landed on one that does not use it.
 
 Everything that goes round the outline turns clockwise seen from the front —
 Vortex and Radar, plus Drift and Rainbow. Reversing a gradient means negating

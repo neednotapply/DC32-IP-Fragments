@@ -796,20 +796,19 @@ void animCorners() {
 
   fbFadeRing(200);
 
-  uint16_t hue = (uint16_t)(gNow * 4);
-  uint8_t  lead = (radius >= 8) ? 0 : (uint8_t)(255 - radius * 15);
+  uint8_t lead = (radius >= 8) ? 0 : (uint8_t)(255 - radius * 15);
 
   // Corners sit at perimeter 0, 16 and 32; each edge is sixteen steps, so the
   // two halves of a pulse meet at the midpoint eight steps out.
   for (uint8_t c = 0; c < 3; c++) {
     uint8_t base = (uint8_t)(c * 16);
-    fbAddHSV(PERIM[base], hue, 200, 120);            // corner keeps a hot core
+    fbAddTint(PERIM[base], inkR, inkG, inkB, 120);   // corner keeps a hot core
 
     if (radius <= 8) {
       uint8_t fwd = (uint8_t)((base + radius) % PERIM_COUNT);
       uint8_t rev = (uint8_t)((base + PERIM_COUNT - radius) % PERIM_COUNT);
-      fbAddHSV(PERIM[fwd], hue, 190, qadd8(lead, 40));
-      fbAddHSV(PERIM[rev], hue, 190, qadd8(lead, 40));
+      fbAddTint(PERIM[fwd], inkR, inkG, inkB, qadd8(lead, 40));
+      fbAddTint(PERIM[rev], inkR, inkG, inkB, qadd8(lead, 40));
 
       if (radius == 8) {                             // the two halves meet
         uint8_t mid = (uint8_t)((base + 8) % PERIM_COUNT);
@@ -825,11 +824,11 @@ void animCorners() {
   if (++radius > 11) radius = 0;                     // brief dark beat, then again
 
   uint8_t e = (radius == 0) ? 220 : (uint8_t)(70 + scale8(sin8((uint8_t)(radius * 18)), 60));
-  fbSetHSV(EYE_C, hue, 120, e);
-  fbSetHSV(EYE_L, hue, 200, scale8(e, 160));
-  fbSetHSV(EYE_R, hue, 200, scale8(e, 160));
-  fbSetHSV(TOP_L, hue, 125, scale8(e, 195));
-  fbSetHSV(TOP_R, hue, 125, scale8(e, 195));
+  fbTint(EYE_C, inkR, inkG, inkB, e);
+  fbTint(EYE_L, inkR, inkG, inkB, scale8(e, 160));
+  fbTint(EYE_R, inkR, inkG, inkB, scale8(e, 160));
+  fbTint(TOP_L, inkR, inkG, inkB, scale8(e, 195));
+  fbTint(TOP_R, inkR, inkG, inkB, scale8(e, 195));
 }
 
 // --- Eye-driven ------------------------------------------------------------
@@ -982,11 +981,10 @@ void animVortex() {
   spin = (uint16_t)(spin + (uint16_t)((int16_t)rate - 96));
   uint8_t t = (uint8_t)(spin >> 3);
 
-  uint16_t hue = 41000 + (uint16_t)(gNow / 4);
   for (uint8_t i = 0; i < PIXEL_COUNT; i++) {
     uint8_t phase = (uint8_t)(SPIN(polA[i]) * 3 - polR[i] - t);
     uint8_t v = sharpen(sin8(phase));
-    fbSetHSV(i, (uint16_t)(hue + (uint16_t)polR[i] * 45), 205, 18 + scale8(v, 225));
+    fbTint(i, inkR, inkG, inkB, 18 + scale8(v, 225));
   }
 }
 
@@ -1184,19 +1182,22 @@ struct Anim {
 };
 
 const Anim ANIMS[] = {
+  // Everything down to Matrix Rain follows the house colour. The four after it
+  // are multi-coloured by design and ignore the setting, so they are grouped at
+  // the end rather than scattered through the list.
   { animBoot,         25, "Boot Sequence" },   // what the badge wakes up to
-  { animBreathe,      25, "Breathe"       },   // ambient
-  { animDrift,        30, "Drift"         },
+  { animBreathe,      25, "Breathe"       },
+  { animVortex,       22, "Vortex"        },
+  { animRadar,        20, "Radar"         },
+  { animCorners,      45, "Corner Pulse"  },
+  { animScanner,      22, "Scanner"       },
+  { animAperture,     22, "Aperture"      },
+  { animChain,        25, "Fragment Chain"},
+  { animMatrix,       30, "Matrix Rain"   },
+  { animDrift,        30, "Drift"         },   // multi-coloured from here on
   { animPlasma,       28, "Plasma"        },
-  { animRadar,        20, "Radar"         },   // motion round the badge
   { animCollide,      18, "Collide"       },
   { animRainbow,      22, "Rainbow"       },
-  { animCorners,      45, "Corner Pulse"  },
-  { animScanner,      22, "Scanner"       },   // eye-driven
-  { animAperture,     22, "Aperture"      },   // the three-board construction
-  { animChain,        25, "Fragment Chain"},
-  { animVortex,       22, "Vortex"        },   // spirals, in polar coordinates
-  { animMatrix,       30, "Matrix Rain"   },   // glitch / hacker
 };
 #define ANIM_COUNT (sizeof(ANIMS) / sizeof(ANIMS[0]))
 

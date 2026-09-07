@@ -656,15 +656,14 @@ function animRainbow() {
 function animCorners() {
   if (gFrame === 0) { st.radius = 0; fbClear(); }
   fbFadeRing(200);
-  const hue = u16(Math.floor(now * 4));
   const lead = st.radius >= 8 ? 0 : 255 - st.radius * 15;
   // Corners sit at perimeter 0, 16 and 32; halves meet eight steps out.
   for (let c = 0; c < 3; c++) {
     const base = c * 16;
-    fbAddHSV(PERIM[base], hue, 200, 120);
+    fbAddTint(PERIM[base], inkR, inkG, inkB, 120);
     if (st.radius <= 8) {
-      fbAddHSV(PERIM[(base + st.radius) % PERIM_COUNT], hue, 190, qadd8(lead, 40));
-      fbAddHSV(PERIM[(base + PERIM_COUNT - st.radius) % PERIM_COUNT], hue, 190, qadd8(lead, 40));
+      fbAddTint(PERIM[(base + st.radius) % PERIM_COUNT], inkR, inkG, inkB, qadd8(lead, 40));
+      fbAddTint(PERIM[(base + PERIM_COUNT - st.radius) % PERIM_COUNT], inkR, inkG, inkB, qadd8(lead, 40));
       if (st.radius === 8) {
         const mid = (base + 8) % PERIM_COUNT;
         fbAdd(PERIM[mid], 255, 255, 255);
@@ -676,11 +675,11 @@ function animCorners() {
   }
   if (++st.radius > 11) st.radius = 0;
   const e = st.radius === 0 ? 220 : 70 + scale8(sin8(st.radius * 18), 60);
-  fbSetHSV(EYE_C, hue, 120, e);
-  fbSetHSV(EYE_L, hue, 200, scale8(e, 160));
-  fbSetHSV(EYE_R, hue, 200, scale8(e, 160));
-  fbSetHSV(TOP_L, hue, 125, scale8(e, 195));
-  fbSetHSV(TOP_R, hue, 125, scale8(e, 195));
+  fbTint(EYE_C, inkR, inkG, inkB, e);
+  fbTint(EYE_L, inkR, inkG, inkB, scale8(e, 160));
+  fbTint(EYE_R, inkR, inkG, inkB, scale8(e, 160));
+  fbTint(TOP_L, inkR, inkG, inkB, scale8(e, 195));
+  fbTint(TOP_R, inkR, inkG, inkB, scale8(e, 195));
 }
 
 function animScanner() {
@@ -797,10 +796,9 @@ function animVortex() {
   st.spin = (st.spin + (rate - 96)) & 65535;         // eases, stalls, briefly reverses
   const t = (st.spin >> 3) & 255;
 
-  const hue = u16(41000 + Math.floor(now / 4));
   for (let i = 0; i < N; i++) {
     const v = sharpen(sin8(SPIN(polA[i]) * 3 - polR[i] - t));
-    fbSetHSV(i, u16(hue + polR[i] * 45), 205, 18 + scale8(v, 225));
+    fbTint(i, inkR, inkG, inkB, 18 + scale8(v, 225));
   }
 }
 
@@ -932,19 +930,21 @@ function animBoot() {
 
 /* --- animation table (mirrors ANIMS[] in the sketch) ---------------------- */
 const ANIMS = [
-  { fn: animBoot,         ms: 25, name: "Boot Sequence", fam: "Wake"      },
-  { fn: animBreathe,      ms: 25, name: "Breathe",       fam: "Ambient"   },
-  { fn: animDrift,        ms: 30, name: "Drift",         fam: "Ambient"   },
-  { fn: animPlasma,       ms: 28, name: "Plasma",        fam: "Ambient"   },
-  { fn: animRadar,        ms: 20, name: "Radar",         fam: "Perimeter" },
-  { fn: animCollide,      ms: 18, name: "Collide",       fam: "Perimeter" },
-  { fn: animRainbow,      ms: 22, name: "Rainbow",       fam: "Perimeter" },
-  { fn: animCorners,      ms: 45, name: "Corner Pulse",  fam: "Perimeter" },
-  { fn: animScanner,      ms: 22, name: "Scanner",       fam: "Eye"       },
-  { fn: animAperture,     ms: 22, name: "Aperture",      fam: "Fragments" },
-  { fn: animChain,        ms: 25, name: "Fragment Chain",fam: "Fragments" },
-  { fn: animVortex,       ms: 22, name: "Vortex",        fam: "Spiral"    },
-  { fn: animMatrix,       ms: 30, name: "Matrix Rain",   fam: "Glitch"    },
+  // Down to Matrix Rain everything follows the house colour; the four after it
+  // are multi-coloured by design, so they are grouped at the end.
+  { fn: animBoot,         ms: 25, name: "Boot Sequence", fam: "Wake"        },
+  { fn: animBreathe,      ms: 25, name: "Breathe",       fam: "House colour" },
+  { fn: animVortex,       ms: 22, name: "Vortex",        fam: "House colour" },
+  { fn: animRadar,        ms: 20, name: "Radar",         fam: "House colour" },
+  { fn: animCorners,      ms: 45, name: "Corner Pulse",  fam: "House colour" },
+  { fn: animScanner,      ms: 22, name: "Scanner",       fam: "House colour" },
+  { fn: animAperture,     ms: 22, name: "Aperture",      fam: "House colour" },
+  { fn: animChain,        ms: 25, name: "Fragment Chain",fam: "House colour" },
+  { fn: animMatrix,       ms: 30, name: "Matrix Rain",   fam: "House colour" },
+  { fn: animDrift,        ms: 30, name: "Drift",         fam: "Multicolour"  },
+  { fn: animPlasma,       ms: 28, name: "Plasma",        fam: "Multicolour"  },
+  { fn: animCollide,      ms: 18, name: "Collide",       fam: "Multicolour"  },
+  { fn: animRainbow,      ms: 22, name: "Rainbow",       fam: "Multicolour"  },
 ];
 </script>
 
