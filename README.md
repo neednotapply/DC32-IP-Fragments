@@ -7,7 +7,7 @@ The original conference sketch is preserved unchanged as `ConferenceCode_v1`.
 
 | | |
 |---|---|
-| `Fragments_NNA/Fragments_NNA.ino` | New firmware. 15 animations, non-blocking, brightness control. |
+| `Fragments_NNA/Fragments_NNA.ino` | New firmware. 13 animations, non-blocking, brightness control. |
 | `sim/bench.html` | Test bench. Runs every animation in a browser, same math as the badge. |
 | `ConferenceCode_v1` | The original conference sketch, untouched. |
 | `DC32 Stand v2.stl` | Printable stand. |
@@ -55,7 +55,7 @@ change, which is the quickest way to see whether the button is behaving:
 
 ```
 [0/15] Breathe
-Fragments: 15 animations, brightness 4..160.
+Fragments: 13 animations, brightness 4..160.
   short press        = next animation
   hold               = ramp brightness, turns round at each end
   press, then hold   = ramp colour
@@ -137,23 +137,31 @@ at the top, so nothing else needs touching.
 | # | Name | Family |
 |---|---|---|
 | 0 | Boot Sequence | What the badge wakes up to — outline only, legs dark |
-| 1 | Breathe | Ambient — the original `breathingBadge()`, finished |
+| 1 | Breathe | Ambient — outline and eye breathing together |
 | 2 | Drift | Ambient |
 | 3 | Plasma | Ambient |
-| 4 | Comet | Perimeter motion |
-| 5 | Collide | Perimeter motion — two travellers head on; the eye holds their two colours |
+| 4 | Radar | One beam sweeping, with a decaying wake |
+| 5 | Collide | Two travellers head on; the eye holds their two colours |
 | 6 | Rainbow | Perimeter motion |
 | 7 | Corner Pulse | Perimeter motion |
-| 8 | Charge & Fire | Eye-driven — wind up, a beat of dark, then the whole badge |
-| 9 | Scanner | Eye-driven |
-| 10 | Aperture | Fragments — the boards close like iris blades, then the flash fires |
-| 11 | Fragment Chain | Fragments — the `DOUT`→`DIN` data path, made visible |
-| 12 | Vortex | Spiral — three arms winding inward, one per board |
-| 13 | Radar | Spiral — one beam sweeping, with a decaying wake |
-| 14 | Matrix Rain | Glitch — the badge as a wall, drops falling through it |
+| 8 | Scanner | Eye-driven |
+| 9 | Aperture | Fragments — the boards close like iris blades, then the flash fires |
+| 10 | Fragment Chain | Fragments — the `DOUT`→`DIN` data path, made visible |
+| 11 | Vortex | Spiral — three arms winding inward, one per board |
+| 12 | Matrix Rain | The badge as a wall, drops falling through it |
+
+**Boot Sequence, Breathe, Radar, Scanner, Aperture, Fragment Chain and Matrix
+Rain all follow the house colour** — press then hold to change it and they move
+with it. The rest are deliberately multi-coloured: Drift, Rainbow and Vortex
+sweep the wheel, Collide gives each traveller its own hue, Plasma and Corner
+Pulse cycle. Those ignore the setting by design.
+
+Vortex and Corner Pulse are single-hued at any given instant but drift through
+the wheel over time, so they are treated as cycling rather than fixed. Say the
+word if they should follow the house colour instead.
 
 Everything that goes round the outline turns clockwise seen from the front —
-both spirals, plus Comet, Drift and Rainbow. Reversing a gradient means negating
+Vortex and Radar, plus Drift and Rainbow. Reversing a gradient means negating
 the *position* term rather than time: flipping time on Rainbow would run the hue
 wheel backwards instead of moving the band the other way.
 

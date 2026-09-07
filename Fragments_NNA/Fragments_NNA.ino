@@ -321,6 +321,11 @@ inline void fbTint(uint8_t i, uint8_t r, uint8_t g, uint8_t b, uint8_t v) {
   fbSet(i, scale8(r, v), scale8(g, v), scale8(b, v));
 }
 
+// As fbTint, but accumulating -- for effects that layer rather than overwrite.
+inline void fbAddTint(uint8_t i, uint8_t r, uint8_t g, uint8_t b, uint8_t v) {
+  fbAdd(i, scale8(r, v), scale8(g, v), scale8(b, v));
+}
+
 // hue is the full 16-bit wheel, matching Adafruit_NeoPixel::ColorHSV.
 inline void fbSetHSV(uint8_t i, uint16_t hue, uint8_t sat, uint8_t val) {
   uint32_t c = strip.ColorHSV(hue, sat, val);
@@ -589,7 +594,7 @@ void animBreathe() {
   uint8_t b     = sin8(phase);
 
   uint8_t v = 14 + scale8(b, 120);
-  for (uint8_t i = 0; i < RING_COUNT; i++) fbTint(i, inkR, inkG, inkB, v);
+  for (uint8_t r = 0; r < PERIM_COUNT; r++) fbTint(PERIM[r], inkR, inkG, inkB, v);
 
   // Corners hold a little more than the edges so the triangle keeps its shape.
   uint8_t cv = 40 + scale8(b, 180);
@@ -599,9 +604,10 @@ void animBreathe() {
 
   // The eye is the same ink thinned, so the badge reads as one colour with the
   // eye as its highlight rather than a white thing sat on a green thing.
-  // Kept above EYE_FLOOR at its dimmest, so the eye actually breathes instead of
-  // being flattened against the floor at the bottom of every cycle.
-  uint8_t e = 100 + scale8(sin8((uint8_t)(phase + 26)), 155);
+  // Driven from the same b as the board, so the eye breathes in step with it
+  // rather than trailing a quarter cycle behind. Kept above EYE_FLOOR at its
+  // dimmest, so it actually breathes instead of flattening against the floor.
+  uint8_t e = 100 + scale8(b, 155);
   fbTint(EYE_C, inkR, inkG, inkB, e);
   fbTint(EYE_L, inkR, inkG, inkB, e);
   fbTint(EYE_R, inkR, inkG, inkB, e);
@@ -649,31 +655,6 @@ void animPlasma() {
 }
 
 // --- Perimeter motion ------------------------------------------------------
-
-// One head orbiting the triangle, tail drawn by the decay of previous frames.
-void animComet() {
-  static uint16_t p;
-  if (gFrame == 0) { p = 0; fbClear(); }
-
-  fbFadeRing(228);
-  p = (uint16_t)((p + 9) % (PERIM_COUNT * 16));
-
-  uint16_t hue = (uint16_t)(gNow * 6);
-  uint32_t c   = strip.ColorHSV(hue, 200, 255);
-  uint8_t  r   = (c >> 16) & 0xFF, g = (c >> 8) & 0xFF, b = c & 0xFF;
-
-  perimPoint(p, r, g, b);
-  // A dimmer leading spark reads as motion blur in the direction of travel.
-  perimPoint((uint16_t)((p + 20) % (PERIM_COUNT * 16)), scale8(r, 60), scale8(g, 60), scale8(b, 60));
-  spillTail(p, scale8(r, 150), scale8(g, 150), scale8(b, 150));
-
-  uint8_t glow = 90 + scale8(sin8((uint8_t)(p >> 2)), 90);
-  fbSetHSV(EYE_C, hue, 160, glow);
-  fbSetHSV(EYE_L, hue, 200, scale8(glow, 220));
-  fbSetHSV(EYE_R, hue, 200, scale8(glow, 220));
-  fbSetHSV(TOP_L, hue, 110, scale8(glow, 205));      // eye glows with the comet
-  fbSetHSV(TOP_R, hue, 110, scale8(glow, 205));
-}
 
 // Two travellers running the outline head on at different speeds, so the point
 // where they meet walks round the badge instead of repeating. Passing a board's
@@ -853,46 +834,6 @@ void animCorners() {
 
 // --- Eye-driven ------------------------------------------------------------
 
-// The eye winds up, dumps into the three corners, and the discharge races the
-// edges to meet at the midpoints. Then the whole thing sags and starts over.
-void animCharge() {
-  // Wind up, a beat of dark, then the whole badge at once. The fronts that used
-  // to race out from the corners afterwards are gone -- that is Corner Pulse's
-  // job, and running it here made the two read as the same animation.
-  const uint16_t CYCLE = 2900;
-  uint16_t t = (uint16_t)(gNow % CYCLE);
-
-  fbFadeRing(178);
-
-  if (t < 1500) {                                    // winding up
-    uint8_t k = (uint8_t)((t * 255UL) / 1500);
-    uint8_t e = scale8(k, k);                        // slow start, hard finish
-    fbSet(EYE_C, scale8(e, 200), scale8(e, 240), 255);
-    fbSet(EYE_L, scale8(e, 90),  scale8(e, 150), scale8(e, 220));
-    fbSet(EYE_R, scale8(e, 90),  scale8(e, 150), scale8(e, 220));
-
-    uint8_t amb = scale8(e, 30);
-    for (uint8_t i = 0; i < RING_COUNT; i++) fbAdd(i, 0, scale8(amb, 120), amb);
-    fbSet(TOP_L, scale8(e, 125), scale8(e, 185), scale8(e, 245));
-    fbSet(TOP_R, scale8(e, 125), scale8(e, 185), scale8(e, 245));
-
-  } else if (t < 1570) {                             // the beat of dark before it goes
-    fbFadeAll(96);
-
-  } else if (t < 1850) {                             // FIRE -- the whole badge at once
-    uint8_t f = (uint8_t)(255 - ((uint32_t)(t - 1570) * 225) / 280);
-    for (uint8_t i = 0; i < RING_COUNT; i++)
-      fbSet(i, scale8(f, 190), scale8(f, 230), f);   // blue-white
-    fbSet(CORNER_BR, f, f, f);
-    fbSet(CORNER_BL, f, f, f);
-    fbSet(CORNER_TOP, f, f, f);
-    fbFill(GRB_FIRST, PIXEL_COUNT, f, f, f);
-
-  } else {                                           // let it die away, loop closes clean
-    fbFadeAll(196);
-  }
-}
-
 // The eye sweeps left and right while a horizontal line scans the triangle.
 // Deliberately sparse -- this one is meant to look like it is watching you.
 void animScanner() {
@@ -904,22 +845,22 @@ void animScanner() {
   for (uint8_t i = 0; i < RING_COUNT; i++) {
     int16_t d = abs((int16_t)ringY[i] - lineY);
     uint8_t v = d >= 14 ? 0 : (uint8_t)(255 - d * 18);
-    fbSet(i, scale8(v, 255), scale8(v, 40), scale8(v, 20));
-    fbAdd(i, 6, 0, 0);                               // faint standby ember
+    fbTint(i, inkR, inkG, inkB, v);
+    fbAddTint(i, inkR, inkG, inkB, 22);              // faint standby ember
   }
 
-  fbAdd(CORNER_BR, 20, 0, 0);
-  fbAdd(CORNER_BL, 20, 0, 0);
-  fbAdd(CORNER_TOP, 20, 0, 0);
+  fbAddTint(CORNER_BR,  inkR, inkG, inkB, 45);
+  fbAddTint(CORNER_BL,  inkR, inkG, inkB, 45);
+  fbAddTint(CORNER_TOP, inkR, inkG, inkB, 45);
 
-  fbSet(EYE_C, 255, 60, 30);
-  fbSet(EYE_L, scale8((uint8_t)(255 - look), 255), scale8((uint8_t)(255 - look), 50), 0);
-  fbSet(EYE_R, scale8(look, 255), scale8(look, 50), 0);
+  fbTint(EYE_C, inkR, inkG, inkB, 255);
+  fbTint(EYE_L, inkR, inkG, inkB, (uint8_t)(255 - look));
+  fbTint(EYE_R, inkR, inkG, inkB, look);
   // The white catches the scan as the line sweeps past the eye's own height.
   int16_t dEye = abs((int16_t)EYE_CY - lineY);
   uint8_t wash = dEye >= 22 ? 18 : (uint8_t)(18 + (22 - dEye) * 10);
-  fbSet(TOP_L, wash, scale8(wash, 42), scale8(wash, 18));
-  fbSet(TOP_R, wash, scale8(wash, 42), scale8(wash, 18));
+  fbTint(TOP_L, inkR, inkG, inkB, wash);
+  fbTint(TOP_R, inkR, inkG, inkB, wash);
 }
 
 // --- The fragments themselves ----------------------------------------------
@@ -946,24 +887,26 @@ void animAperture() {
   else               open = 255;
 
   uint8_t reach = (uint8_t)(2 + scale8((uint8_t)(255 - open), 18));      // 2..20 LEDs of blade
-  const uint16_t hue = 7000;                                             // warm brass
 
   fbFill(0, RING_COUNT, 0, 0, 0);
   for (uint8_t f = 0; f < FRAG_COUNT; f++) {
     for (uint8_t k = 0; k < reach && k < FRAG_LEN; k++) {
       uint8_t d = (uint8_t)(reach - 1 - k);                              // 0 at the leading edge
       uint8_t v = d < 2 ? 255 : (uint8_t)(160 - (d > 14 ? 14 : d) * 7);
-      fbSetHSV((uint8_t)(f * FRAG_LEN + k), hue, d < 2 ? 110 : 225, v);
+      uint8_t i = (uint8_t)(f * FRAG_LEN + k);
+      fbTint(i, inkR, inkG, inkB, v);
+      if (d < 2) fbAdd(i, 80, 80, 80);                                   // hot blade edge
     }
   }
 
   uint8_t light = scale8(open, open);                // what still gets through
   uint8_t blade = (uint8_t)(255 - open);
-  fbSet(EYE_C, light, scale8(light, 235), scale8(light, 205));
-  fbSetHSV(EYE_L, hue, 220, scale8(blade, 190));
-  fbSetHSV(EYE_R, hue, 220, scale8(blade, 190));
-  fbSetHSV(TOP_L, hue, 55, qadd8(scale8(light, 215), scale8(blade, 35)));
-  fbSetHSV(TOP_R, hue, 55, qadd8(scale8(light, 215), scale8(blade, 35)));
+  fbTint(EYE_C, inkR, inkG, inkB, light);
+  fbAdd(EYE_C, scale8(light, 70), scale8(light, 70), scale8(light, 70));
+  fbTint(EYE_L, inkR, inkG, inkB, scale8(blade, 190));
+  fbTint(EYE_R, inkR, inkG, inkB, scale8(blade, 190));
+  fbTint(TOP_L, inkR, inkG, inkB, qadd8(scale8(light, 215), scale8(blade, 35)));
+  fbTint(TOP_R, inkR, inkG, inkB, qadd8(scale8(light, 215), scale8(blade, 35)));
 
   if (flash) {
     // Three hard white pops behind the closed shutter. 63/64 wash the sclera,
@@ -985,7 +928,7 @@ void animChain() {
 
   // Every board is powered and the chain is always carrying data, so there is
   // no start frame and no dead tail. Three packets in flight keep it seamless.
-  for (uint8_t i = 0; i < RING_COUNT; i++) fbAdd(i, 0, 14, 6);
+  for (uint8_t i = 0; i < RING_COUNT; i++) fbAddTint(i, inkR, inkG, inkB, 16);
 
   const uint16_t PERIOD = 3300;
   for (uint8_t k = 0; k < 3; k++) {
@@ -996,7 +939,7 @@ void animChain() {
     for (uint8_t tail = 0; tail < 7; tail++) {       // the packet and its wake
       uint8_t i = (uint8_t)((head + RING_COUNT - tail) % RING_COUNT);
       uint8_t w = (uint8_t)(255 - tail * 36);
-      fbAdd(i, 0, w, scale8(w, 45));
+      fbAddTint(i, inkR, inkG, inkB, w);
     }
     if (posInFrag(head) == 0) {                      // DOUT -> DIN handoff
       fbAdd((uint8_t)((head + RING_COUNT - 1) % RING_COUNT), 190, 190, 255);
@@ -1005,11 +948,11 @@ void animChain() {
   }
 
   uint8_t pulse = sin8((uint8_t)(gNow / 9));
-  fbSet(EYE_C, 0, (uint8_t)(170 + scale8(pulse, 85)), 80);
-  fbSet(EYE_L, 0, 120, 20);
-  fbSet(EYE_R, 0, 120, 20);
-  fbSet(TOP_L, 0, (uint8_t)(60 + scale8(pulse, 120)), 30);
-  fbSet(TOP_R, 0, (uint8_t)(60 + scale8(pulse, 120)), 30);
+  fbTint(EYE_C, inkR, inkG, inkB, (uint8_t)(170 + scale8(pulse, 85)));
+  fbTint(EYE_L, inkR, inkG, inkB, 120);
+  fbTint(EYE_R, inkR, inkG, inkB, 120);
+  fbTint(TOP_L, inkR, inkG, inkB, (uint8_t)(60 + scale8(pulse, 120)));
+  fbTint(TOP_R, inkR, inkG, inkB, (uint8_t)(60 + scale8(pulse, 120)));
 }
 
 // --- Spirals ---------------------------------------------------------------
@@ -1058,9 +1001,11 @@ void animRadar() {
     uint8_t d = (uint8_t)(sweep - SPIN(polA[i]));    // 0 at the beam, growing behind
     if (d > 30) continue;
     uint8_t v = (uint8_t)(255 - d * 8);
-    fbAddHSV(i, 21000, d < 3 ? 80 : 235, v);         // scope green, white at the head
+    fbAddTint(i, inkR, inkG, inkB, v);
+    if (d < 3) fbAdd(i, scale8(v, 90), scale8(v, 90), scale8(v, 90));   // pale at the head
   }
-  for (uint8_t i = 0; i < PIXEL_COUNT; i++) fbAdd(i, 0, 7, 2);   // faint standing ground
+  for (uint8_t i = 0; i < PIXEL_COUNT; i++)
+    fbAddTint(i, inkR, inkG, inkB, 9);               // faint standing ground
 }
 
 // --- Glitch / hacker -------------------------------------------------------
@@ -1243,16 +1188,14 @@ const Anim ANIMS[] = {
   { animBreathe,      25, "Breathe"       },   // ambient
   { animDrift,        30, "Drift"         },
   { animPlasma,       28, "Plasma"        },
-  { animComet,        18, "Comet"         },   // perimeter motion
+  { animRadar,        20, "Radar"         },   // motion round the badge
   { animCollide,      18, "Collide"       },
   { animRainbow,      22, "Rainbow"       },
   { animCorners,      45, "Corner Pulse"  },
-  { animCharge,       18, "Charge & Fire" },   // eye-driven
-  { animScanner,      22, "Scanner"       },
+  { animScanner,      22, "Scanner"       },   // eye-driven
   { animAperture,     22, "Aperture"      },   // the three-board construction
   { animChain,        25, "Fragment Chain"},
   { animVortex,       22, "Vortex"        },   // spirals, in polar coordinates
-  { animRadar,        20, "Radar"         },
   { animMatrix,       30, "Matrix Rain"   },   // glitch / hacker
 };
 #define ANIM_COUNT (sizeof(ANIMS) / sizeof(ANIMS[0]))

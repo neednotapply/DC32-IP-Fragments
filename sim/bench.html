@@ -272,7 +272,7 @@
 
   <footer>
     <span>DC32 &middot; Illuminati Party&reg; &ldquo;Fragments&rdquo;</span>
-    <span>15 animations &middot; brightness 4&ndash;160</span>
+    <span>13 animations &middot; brightness 4&ndash;160</span>
     <span>Press: next &middot; Hold: brightness &middot; Press+hold: colour</span>
   </footer>
 </div>
@@ -484,6 +484,9 @@ function fbFill(from, to, r, g, b) { for (let i = from; i < to; i++) fbSet(i, r,
 // Lay a colour down at a level, scaling all three channels so the hue stays put.
 function fbTint(i, r, g, b, v) { fbSet(i, scale8(r, v), scale8(g, v), scale8(b, v)); }
 
+// As fbTint, but accumulating -- for effects that layer rather than overwrite.
+function fbAddTint(i, r, g, b, v) { fbAdd(i, scale8(r, v), scale8(g, v), scale8(b, v)); }
+
 function fbSetHSV(i, h, s, v) { const c = ColorHSV(h, s, v); fbSet(i, (c >> 16) & 255, (c >> 8) & 255, c & 255); }
 function fbAddHSV(i, h, s, v) { const c = ColorHSV(h, s, v); fbAdd(i, (c >> 16) & 255, (c >> 8) & 255, c & 255); }
 
@@ -503,13 +506,13 @@ const t8 = d => Math.floor(now / d) & 255;
 function animBreathe() {
   const phase = t8(20), b = sin8(phase);
   const v = 14 + scale8(b, 120);
-  for (let i = 0; i < RING; i++) fbTint(i, inkR, inkG, inkB, v);
+  for (let r = 0; r < PERIM_COUNT; r++) fbTint(PERIM[r], inkR, inkG, inkB, v);
   const cv = 40 + scale8(b, 180);
   fbTint(CORNER_BR,  inkR, inkG, inkB, cv);
   fbTint(CORNER_BL,  inkR, inkG, inkB, cv);
   fbTint(CORNER_TOP, inkR, inkG, inkB, cv);
   // The eye is the same ink thinned, so the badge reads as one colour.
-  const e = 100 + scale8(sin8(phase + 26), 155);    // stays above EYE_FLOOR
+  const e = 100 + scale8(b, 155);                  // in step with the board
   fbTint(EYE_C, inkR, inkG, inkB, e);
   fbTint(EYE_L, inkR, inkG, inkB, e);
   fbTint(EYE_R, inkR, inkG, inkB, e);
@@ -544,25 +547,6 @@ function animPlasma() {
     const v = Math.floor((a + b + c) / 3);
     fbSetHSV(i, u16(v * 200 + u16(Math.floor(now))), 220, 45 + scale8(v, 190));
   }
-}
-
-/* --- perimeter motion ----------------------------------------------------- */
-function animComet() {
-  if (gFrame === 0) { st.p = 0; fbClear(); }
-  fbFadeRing(228);
-  st.p = (st.p + 9) % (PERIM_COUNT * 16);
-  const hue = u16(Math.floor(now * 6));
-  const c = ColorHSV(hue, 200, 255);
-  const r = (c >> 16) & 255, g = (c >> 8) & 255, b = c & 255;
-  perimPoint(st.p, r, g, b);
-  perimPoint((st.p + 20) % (PERIM_COUNT * 16), scale8(r, 60), scale8(g, 60), scale8(b, 60));
-  spillTail(st.p, scale8(r, 150), scale8(g, 150), scale8(b, 150));
-  const glow = 90 + scale8(sin8(st.p >> 2), 90);
-  fbSetHSV(EYE_C, hue, 160, glow);
-  fbSetHSV(EYE_L, hue, 200, scale8(glow, 220));
-  fbSetHSV(EYE_R, hue, 200, scale8(glow, 220));
-  fbSetHSV(TOP_L, hue, 110, scale8(glow, 205));      // eye glows with the comet
-  fbSetHSV(TOP_R, hue, 110, scale8(glow, 205));
 }
 
 function animCollide() {
@@ -699,54 +683,26 @@ function animCorners() {
   fbSetHSV(TOP_R, hue, 125, scale8(e, 195));
 }
 
-function animCharge() {
-  // The fronts that used to race out from the corners are gone -- that is
-  // Corner Pulse's job, and running it here made the two read as one animation.
-  const t = Math.floor(now) % 2900;
-  fbFadeRing(178);
-
-  if (t < 1500) {                                    // winding up
-    const k = Math.floor((t * 255) / 1500), e = scale8(k, k);
-    fbSet(EYE_C, scale8(e, 200), scale8(e, 240), 255);
-    fbSet(EYE_L, scale8(e, 90), scale8(e, 150), scale8(e, 220));
-    fbSet(EYE_R, scale8(e, 90), scale8(e, 150), scale8(e, 220));
-    const amb = scale8(e, 30);
-    for (let i = 0; i < RING; i++) fbAdd(i, 0, scale8(amb, 120), amb);
-    fbSet(TOP_L, scale8(e, 125), scale8(e, 185), scale8(e, 245));
-    fbSet(TOP_R, scale8(e, 125), scale8(e, 185), scale8(e, 245));
-
-  } else if (t < 1570) {                             // the beat of dark before it goes
-    fbFadeAll(96);
-
-  } else if (t < 1850) {                             // FIRE
-    const f = 255 - Math.floor(((t - 1570) * 225) / 280);
-    for (let i = 0; i < RING; i++) fbSet(i, scale8(f, 190), scale8(f, 230), f);
-    fbSet(CORNER_BR, f, f, f); fbSet(CORNER_BL, f, f, f); fbSet(CORNER_TOP, f, f, f);
-    fbFill(GRB_FIRST, N, f, f, f);
-
-  } else {
-    fbFadeAll(196);                                  // let it die away, loop closes clean
-  }
-}
-
 function animScanner() {
   const look = sin8(t8(14)), line = sin8(t8(9));
   const lineY = Math.floor((line * 100) / 255);
   for (let i = 0; i < RING; i++) {
     const d = Math.abs(ringY[i] - lineY);
     const v = d >= 14 ? 0 : 255 - d * 18;
-    fbSet(i, scale8(v, 255), scale8(v, 40), scale8(v, 20));
-    fbAdd(i, 6, 0, 0);
+    fbTint(i, inkR, inkG, inkB, v);
+    fbAddTint(i, inkR, inkG, inkB, 22);              // faint standby ember
   }
-  fbAdd(CORNER_BR, 20, 0, 0); fbAdd(CORNER_BL, 20, 0, 0); fbAdd(CORNER_TOP, 20, 0, 0);
-  fbSet(EYE_C, 255, 60, 30);
-  fbSet(EYE_L, scale8(255 - look, 255), scale8(255 - look, 50), 0);
-  fbSet(EYE_R, scale8(look, 255), scale8(look, 50), 0);
+  fbAddTint(CORNER_BR, inkR, inkG, inkB, 45);
+  fbAddTint(CORNER_BL, inkR, inkG, inkB, 45);
+  fbAddTint(CORNER_TOP, inkR, inkG, inkB, 45);
+  fbTint(EYE_C, inkR, inkG, inkB, 255);
+  fbTint(EYE_L, inkR, inkG, inkB, 255 - look);
+  fbTint(EYE_R, inkR, inkG, inkB, look);
   // The white catches the scan as the line sweeps past the eye's own height.
   const dEye = Math.abs(EYE_CY - lineY);
   const wash = dEye >= 22 ? 18 : 18 + (22 - dEye) * 10;
-  fbSet(TOP_L, wash, scale8(wash, 42), scale8(wash, 18));
-  fbSet(TOP_R, wash, scale8(wash, 42), scale8(wash, 18));
+  fbTint(TOP_L, inkR, inkG, inkB, wash);
+  fbTint(TOP_R, inkR, inkG, inkB, wash);
 }
 
 /* --- the fragments themselves --------------------------------------------- */
@@ -766,22 +722,24 @@ function animAperture() {
   else               open = 255;
 
   const reach = 2 + scale8(255 - open, 18);
-  const hue = 7000;
 
   fbFill(0, RING, 0, 0, 0);
   for (let f = 0; f < FRAG_COUNT; f++) {
     for (let k = 0; k < reach && k < FRAG_LEN; k++) {
       const d = reach - 1 - k;
       const v = d < 2 ? 255 : 160 - (d > 14 ? 14 : d) * 7;
-      fbSetHSV(f * FRAG_LEN + k, hue, d < 2 ? 110 : 225, v);
+      const i = f * FRAG_LEN + k;
+      fbTint(i, inkR, inkG, inkB, v);
+      if (d < 2) fbAdd(i, 80, 80, 80);               // hot blade edge
     }
   }
   const light = scale8(open, open), blade = 255 - open;
-  fbSet(EYE_C, light, scale8(light, 235), scale8(light, 205));
-  fbSetHSV(EYE_L, hue, 220, scale8(blade, 190));
-  fbSetHSV(EYE_R, hue, 220, scale8(blade, 190));
-  fbSetHSV(TOP_L, hue, 55, qadd8(scale8(light, 215), scale8(blade, 35)));
-  fbSetHSV(TOP_R, hue, 55, qadd8(scale8(light, 215), scale8(blade, 35)));
+  fbTint(EYE_C, inkR, inkG, inkB, light);
+  fbAdd(EYE_C, scale8(light, 70), scale8(light, 70), scale8(light, 70));
+  fbTint(EYE_L, inkR, inkG, inkB, scale8(blade, 190));
+  fbTint(EYE_R, inkR, inkG, inkB, scale8(blade, 190));
+  fbTint(TOP_L, inkR, inkG, inkB, qadd8(scale8(light, 215), scale8(blade, 35)));
+  fbTint(TOP_R, inkR, inkG, inkB, qadd8(scale8(light, 215), scale8(blade, 35)));
 
   if (flash) {                                       // three hard white pops
     fbSet(EYE_C, flash, flash, flash);
@@ -797,7 +755,7 @@ function animAperture() {
 function animChain() {
   fbFadeRing(200);
   // Every board is powered and the chain always carries data: no start, no stop.
-  for (let i = 0; i < RING; i++) fbAdd(i, 0, 14, 6);
+  for (let i = 0; i < RING; i++) fbAddTint(i, inkR, inkG, inkB, 16);
 
   const PERIOD = 3300;
   for (let k = 0; k < 3; k++) {
@@ -807,7 +765,7 @@ function animChain() {
     for (let tail = 0; tail < 7; tail++) {
       const i = (head + RING - tail) % RING;
       const w = 255 - tail * 36;
-      fbAdd(i, 0, w, scale8(w, 45));
+      fbAddTint(i, inkR, inkG, inkB, w);
     }
     if (posInFrag(head) === 0) {
       fbAdd((head + RING - 1) % RING, 190, 190, 255);
@@ -815,11 +773,11 @@ function animChain() {
     }
   }
   const pulse = sin8(Math.floor(now / 9));
-  fbSet(EYE_C, 0, 170 + scale8(pulse, 85), 80);
-  fbSet(EYE_L, 0, 120, 20);
-  fbSet(EYE_R, 0, 120, 20);
-  fbSet(TOP_L, 0, 60 + scale8(pulse, 120), 30);
-  fbSet(TOP_R, 0, 60 + scale8(pulse, 120), 30);
+  fbTint(EYE_C, inkR, inkG, inkB, 170 + scale8(pulse, 85));
+  fbTint(EYE_L, inkR, inkG, inkB, 120);
+  fbTint(EYE_R, inkR, inkG, inkB, 120);
+  fbTint(TOP_L, inkR, inkG, inkB, 60 + scale8(pulse, 120));
+  fbTint(TOP_R, inkR, inkG, inkB, 60 + scale8(pulse, 120));
 }
 
 /* --- spirals -------------------------------------------------------------- *
@@ -853,9 +811,11 @@ function animRadar() {
   for (let i = 0; i < N; i++) {
     const d = (sweep - SPIN(polA[i])) & 255;         // 0 at the beam, growing behind
     if (d > 30) continue;
-    fbAddHSV(i, 21000, d < 3 ? 80 : 235, 255 - d * 8);
+    const v = 255 - d * 8;
+    fbAddTint(i, inkR, inkG, inkB, v);
+    if (d < 3) fbAdd(i, scale8(v, 90), scale8(v, 90), scale8(v, 90));   // pale head
   }
-  for (let i = 0; i < N; i++) fbAdd(i, 0, 7, 2);     // faint standing ground
+  for (let i = 0; i < N; i++) fbAddTint(i, inkR, inkG, inkB, 9);        // standing ground
 }
 
 /* --- glitch / hacker ------------------------------------------------------ */
@@ -976,16 +936,14 @@ const ANIMS = [
   { fn: animBreathe,      ms: 25, name: "Breathe",       fam: "Ambient"   },
   { fn: animDrift,        ms: 30, name: "Drift",         fam: "Ambient"   },
   { fn: animPlasma,       ms: 28, name: "Plasma",        fam: "Ambient"   },
-  { fn: animComet,        ms: 18, name: "Comet",         fam: "Perimeter" },
+  { fn: animRadar,        ms: 20, name: "Radar",         fam: "Perimeter" },
   { fn: animCollide,      ms: 18, name: "Collide",       fam: "Perimeter" },
   { fn: animRainbow,      ms: 22, name: "Rainbow",       fam: "Perimeter" },
   { fn: animCorners,      ms: 45, name: "Corner Pulse",  fam: "Perimeter" },
-  { fn: animCharge,       ms: 18, name: "Charge & Fire", fam: "Eye"       },
   { fn: animScanner,      ms: 22, name: "Scanner",       fam: "Eye"       },
   { fn: animAperture,     ms: 22, name: "Aperture",      fam: "Fragments" },
   { fn: animChain,        ms: 25, name: "Fragment Chain",fam: "Fragments" },
   { fn: animVortex,       ms: 22, name: "Vortex",        fam: "Spiral"    },
-  { fn: animRadar,        ms: 20, name: "Radar",         fam: "Spiral"    },
   { fn: animMatrix,       ms: 30, name: "Matrix Rain",   fam: "Glitch"    },
 ];
 </script>
