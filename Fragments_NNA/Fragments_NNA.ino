@@ -468,6 +468,39 @@ void buildGeometry() {
   }
 }
 
+// There is a blue power LED behind the eye and it is always lit. So "off" is not
+// a colour this badge can show there: an eye left dark does not read as dark, it
+// reads as blue, and any animation that lets the eye fall to zero is showing the
+// power LED rather than anything we chose.
+//
+// Everything bound for the strip gets lifted to a floor bright enough to swamp
+// it. A tint already in place is scaled up with its hue intact; an eye left
+// completely dark takes the house green instead of the power LED's blue. Raise
+// EYE_FLOOR if blue still shows through -- it is in framebuffer units, so it
+// dims along with everything else as you ramp the badge down.
+#define EYE_FLOOR 95
+
+void floorEye() {
+  for (uint8_t i = GRB_FIRST; i < PIXEL_COUNT; i++) {
+    uint8_t mx = fb[i][0];
+    if (fb[i][1] > mx) mx = fb[i][1];
+    if (fb[i][2] > mx) mx = fb[i][2];
+    if (mx >= EYE_FLOOR) continue;
+
+    if (mx == 0) {                                   // nothing there at all
+      fbTint(i, GREEN_R, GREEN_G, GREEN_B, EYE_FLOOR);
+    } else {                                         // lift what is there, hue intact
+      uint16_t k = ((uint16_t)EYE_FLOOR << 8) / mx;
+      for (uint8_t c = 0; c < 3; c++) {
+        // Round up. Truncating here leaves the top channel a unit short of the
+        // floor, which is invisible but means the invariant does not hold.
+        uint16_t v = (uint16_t)(((uint32_t)fb[i][c] * k + 255) >> 8);
+        fb[i][c] = v > 255 ? 255 : (uint8_t)v;
+      }
+    }
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Output: gamma -> master brightness -> current limit -> byte order -> strip
 // ---------------------------------------------------------------------------
@@ -536,12 +569,14 @@ void animBreathe() {
 
   // The eye is the same ink thinned, so the badge reads as one colour with the
   // eye as its highlight rather than a white thing sat on a green thing.
-  uint8_t e = 25 + scale8(sin8((uint8_t)(phase + 26)), 200);
+  // Kept above EYE_FLOOR at its dimmest, so the eye actually breathes instead of
+  // being flattened against the floor at the bottom of every cycle.
+  uint8_t e = 100 + scale8(sin8((uint8_t)(phase + 26)), 155);
   fbTint(EYE_C, GREEN_PALE_R, GREEN_PALE_G, GREEN_PALE_B, e);
   fbTint(EYE_L, GREEN_R, GREEN_G, GREEN_B, e);
   fbTint(EYE_R, GREEN_R, GREEN_G, GREEN_B, e);
 
-  uint8_t t = scale8(e, 165);                        // wash the sclera with it
+  uint8_t t = 95 + scale8(e, 100);                   // wash the sclera with it
   fbTint(TOP_L, GREEN_PALE_R, GREEN_PALE_G, GREEN_PALE_B, t);
   fbTint(TOP_R, GREEN_PALE_R, GREEN_PALE_G, GREEN_PALE_B, t);
 }
@@ -788,7 +823,10 @@ void animCorners() {
 // The eye winds up, dumps into the three corners, and the discharge races the
 // edges to meet at the midpoints. Then the whole thing sags and starts over.
 void animCharge() {
-  const uint16_t CYCLE = 3600;
+  // Wind up, a beat of dark, then the whole badge at once. The fronts that used
+  // to race out from the corners afterwards are gone -- that is Corner Pulse's
+  // job, and running it here made the two read as the same animation.
+  const uint16_t CYCLE = 2900;
   uint16_t t = (uint16_t)(gNow % CYCLE);
 
   fbFadeRing(178);
@@ -817,22 +855,7 @@ void animCharge() {
     fbSet(CORNER_TOP, f, f, f);
     fbFill(GRB_FIRST, PIXEL_COUNT, f, f, f);
 
-  } else if (t < 2750) {                             // the discharge runs the edges
-    uint16_t p = (uint16_t)(((uint32_t)(t - 1850) * 136) / 900);
-    for (uint8_t c = 0; c < 3; c++) {
-      uint16_t base = (uint16_t)(c * 16 * 16);
-      perimPoint((uint16_t)((base + p) % (PERIM_COUNT * 16)), 120, 220, 255);
-      perimPoint((uint16_t)((base + PERIM_COUNT * 16 - p) % (PERIM_COUNT * 16)), 120, 220, 255);
-      spillTail((uint16_t)((base + p) % (PERIM_COUNT * 16)), 70, 130, 150);
-    }
-    uint8_t e = (uint8_t)(255 - ((uint32_t)(t - 1850) * 215) / 900);
-    fbSet(EYE_C, scale8(e, 200), scale8(e, 240), e);
-    fbSet(EYE_L, scale8(e, 80), scale8(e, 120), scale8(e, 200));
-    fbSet(EYE_R, scale8(e, 80), scale8(e, 120), scale8(e, 200));
-    fbSet(TOP_L, 0, scale8(e, 145), scale8(e, 205));
-    fbSet(TOP_R, 0, scale8(e, 145), scale8(e, 205));
-
-  } else {                                           // all the way down, so the loop closes
+  } else {                                           // let it die away, loop closes clean
     fbFadeAll(196);
   }
 }
@@ -1093,44 +1116,6 @@ void animMatrix() {
   fbSet(TOP_R, 0, scale8(cursor, 155), scale8(cursor, 22));
 }
 
-// Mostly-composed badge with the signal breaking up: dropouts, channel tears,
-// and the occasional full-frame corruption.
-void animGlitch() {
-  uint16_t hue = 34000;
-
-  for (uint8_t i = 0; i < RING_COUNT; i++) {
-    uint8_t base = 30 + scale8(sin8((uint8_t)(ringPos(i) * 6 + gNow / 18)), 60);
-    fbSetHSV(i, hue, 230, base);
-  }
-
-  // Torn segment: a contiguous run jumps to the wrong color for a frame or two.
-  if (random(100) < 30) {
-    uint8_t start = (uint8_t)random(RING_COUNT);
-    uint8_t len   = (uint8_t)random(3, 14);
-    uint16_t bad  = random(2) ? 0 : 43000;
-    for (uint8_t k = 0; k < len; k++)
-      fbSetHSV(ringIdx((uint8_t)((start + k) % RING_COUNT)), bad, 255, (uint8_t)random(120, 256));
-  }
-
-  // Dropout: individual LEDs blink out entirely.
-  for (uint8_t i = 0; i < RING_COUNT; i++) if (random(100) < 8) fbSet(i, 0, 0, 0);
-
-  // Full-frame corruption, rare and short.
-  if (random(1000) < 25) {
-    for (uint8_t i = 0; i < RING_COUNT; i++) {
-      uint8_t v = (uint8_t)random(60, 256);
-      fbSet(i, v, scale8(v, 30), scale8(v, 200));
-    }
-  }
-
-  bool stutter = random(100) < 18;
-  uint8_t e = stutter ? (uint8_t)random(0, 90) : 200;
-  fbSetHSV(EYE_C, stutter ? 0 : hue, stutter ? 255 : 40, e);
-  fbSetHSV(EYE_L, hue, 220, stutter ? 20 : 130);
-  fbSetHSV(EYE_R, hue, 220, stutter ? 130 : 20);
-  fbSetHSV(TOP_L, hue, 240, random(100) < 15 ? 0 : 80);
-  fbSetHSV(TOP_R, hue, 240, random(100) < 15 ? 0 : 80);
-}
 
 // Power-on self test, on a loop: trace the outline, lock the corners, open the
 // eye, then three confirmation flashes and a short hold.
@@ -1140,12 +1125,12 @@ void animBoot() {
 
   fbClear();
 
-  if (t < 1600) {                                    // trace the perimeter
+  if (t < 1600) {                                    // trace the outline
     uint8_t lit = (uint8_t)((t * (uint32_t)PERIM_COUNT) / 1600);
     for (uint8_t r = 0; r <= lit && r < PERIM_COUNT; r++) {
       uint8_t age = (uint8_t)(lit - r);
       uint8_t v   = age > 8 ? 45 : (uint8_t)(255 - age * 26);
-      fbSet(PERIM[r], scale8(v, 40), scale8(v, 190), v);
+      fbTint(PERIM[r], GREEN_R, GREEN_G, GREEN_B, v);
     }
     // Each board's tail fills in behind the trace as it passes the attachment.
     for (uint8_t f = 0; f < FRAG_COUNT; f++) {
@@ -1154,52 +1139,54 @@ void animBoot() {
         if (lit <= anchor + k) continue;
         uint8_t age = (uint8_t)(lit - anchor - k);
         uint8_t v   = age > 8 ? 45 : (uint8_t)(255 - age * 26);
-        fbSet((uint8_t)(f * FRAG_LEN + 16 + k), scale8(v, 40), scale8(v, 190), v);
+        fbTint((uint8_t)(f * FRAG_LEN + 16 + k), GREEN_R, GREEN_G, GREEN_B, v);
       }
     }
 
   } else if (t < 2600) {                             // corners lock in, one by one
-    fbFill(0, RING_COUNT, 18, 60, 70);
+    for (uint8_t i = 0; i < RING_COUNT; i++) fbTint(i, GREEN_R, GREEN_G, GREEN_B, 70);
     uint16_t s = t - 1600;
     const uint8_t corner[3] = { CORNER_BR, CORNER_BL, CORNER_TOP };
     for (uint8_t c = 0; c < 3; c++) {
       if (s > (uint16_t)c * 280) {
         uint16_t age = s - c * 280;
         uint8_t  v   = age > 300 ? 200 : (uint8_t)(255 - (age * 55) / 300);
-        fbSet(corner[c], v, v, v);
+        fbTint(corner[c], GREEN_PALE_R, GREEN_PALE_G, GREEN_PALE_B, v);
       }
     }
 
   } else if (t < 3800) {                             // the eye opens
-    fbFill(0, RING_COUNT, 18, 60, 70);
-    fbSet(CORNER_BR, 200, 200, 200);
-    fbSet(CORNER_BL, 200, 200, 200);
-    fbSet(CORNER_TOP, 200, 200, 200);
+    for (uint8_t i = 0; i < RING_COUNT; i++) fbTint(i, GREEN_R, GREEN_G, GREEN_B, 70);
+    fbTint(CORNER_BR,  GREEN_PALE_R, GREEN_PALE_G, GREEN_PALE_B, 200);
+    fbTint(CORNER_BL,  GREEN_PALE_R, GREEN_PALE_G, GREEN_PALE_B, 200);
+    fbTint(CORNER_TOP, GREEN_PALE_R, GREEN_PALE_G, GREEN_PALE_B, 200);
 
     uint16_t s = t - 2600;
     uint8_t  side = s > 400 ? 255 : (uint8_t)((s * 255UL) / 400);
-    fbSet(EYE_L, scale8(side, 120), scale8(side, 200), scale8(side, 255));
-    fbSet(EYE_R, scale8(side, 120), scale8(side, 200), scale8(side, 255));
+    fbTint(EYE_L, GREEN_R, GREEN_G, GREEN_B, side);
+    fbTint(EYE_R, GREEN_R, GREEN_G, GREEN_B, side);
     if (s > 400) {
       uint8_t c = (uint8_t)(((s - 400) * 255UL) / 800);
-      fbSet(EYE_C, c, c, c);
-      fbSet(TOP_L, scale8(c, 120), scale8(c, 200), c);
-      fbSet(TOP_R, scale8(c, 120), scale8(c, 200), c);
+      fbTint(EYE_C, GREEN_PALE_R, GREEN_PALE_G, GREEN_PALE_B, c);
+      fbTint(TOP_L, GREEN_PALE_R, GREEN_PALE_G, GREEN_PALE_B, c);
+      fbTint(TOP_R, GREEN_PALE_R, GREEN_PALE_G, GREEN_PALE_B, c);
     }
 
   } else if (t < 4700) {                             // three confirmation flashes
     bool on = ((t - 3800) / 150) % 2 == 0;
     uint8_t v = on ? 220 : 20;
-    fbFill(0, RING_COUNT, scale8(v, 40), scale8(v, 200), v);
-    fbFill(GRB_FIRST, PIXEL_COUNT, v, v, v);
+    for (uint8_t i = 0; i < RING_COUNT; i++) fbTint(i, GREEN_R, GREEN_G, GREEN_B, v);
+    for (uint8_t i = GRB_FIRST; i < PIXEL_COUNT; i++)
+      fbTint(i, GREEN_PALE_R, GREEN_PALE_G, GREEN_PALE_B, v);
 
   } else {                                           // ready, holding
     uint8_t b = 60 + scale8(sin8((uint8_t)((t - 4700) / 3)), 40);
-    fbFill(0, RING_COUNT, 0, scale8(b, 210), b);
-    fbSet(CORNER_BR, 0, scale8(b, 200), qadd8(b, 40));
-    fbSet(CORNER_BL, 0, scale8(b, 200), qadd8(b, 40));
-    fbSet(CORNER_TOP, 0, scale8(b, 200), qadd8(b, 40));
-    fbFill(GRB_FIRST, PIXEL_COUNT, 150, 200, 230);
+    for (uint8_t i = 0; i < RING_COUNT; i++) fbTint(i, GREEN_R, GREEN_G, GREEN_B, b);
+    fbTint(CORNER_BR,  GREEN_R, GREEN_G, GREEN_B, qadd8(b, 50));
+    fbTint(CORNER_BL,  GREEN_R, GREEN_G, GREEN_B, qadd8(b, 50));
+    fbTint(CORNER_TOP, GREEN_R, GREEN_G, GREEN_B, qadd8(b, 50));
+    for (uint8_t i = GRB_FIRST; i < PIXEL_COUNT; i++)
+      fbTint(i, GREEN_PALE_R, GREEN_PALE_G, GREEN_PALE_B, 200);
   }
 }
 
@@ -1233,7 +1220,6 @@ const Anim ANIMS[] = {
   { animVortex,       22, "Vortex"        },   // spirals, in polar coordinates
   { animRadar,        20, "Radar"         },
   { animMatrix,       45, "Matrix Rain"   },   // glitch / hacker
-  { animGlitch,       70, "Glitch"        },
   { animBoot,         25, "Boot Sequence" },
 };
 #define ANIM_COUNT (sizeof(ANIMS) / sizeof(ANIMS[0]))
@@ -1402,6 +1388,7 @@ void loop() {
       gFrame++;
     }
 
+    floorEye();                                      // the power LED never gets the last word
     pushFrame();
   }
 }

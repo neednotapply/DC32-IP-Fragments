@@ -268,7 +268,7 @@
 
   <footer>
     <span>DC32 &middot; Illuminati Party&reg; &ldquo;Fragments&rdquo;</span>
-    <span>16 animations &middot; brightness 4&ndash;160</span>
+    <span>15 animations &middot; brightness 4&ndash;160</span>
     <span>Short press: next &middot; Hold: ramp brightness</span>
   </footer>
 </div>
@@ -489,11 +489,11 @@ function animBreathe() {
   fbTint(CORNER_BL,  GREEN_R, GREEN_G, GREEN_B, cv);
   fbTint(CORNER_TOP, GREEN_R, GREEN_G, GREEN_B, cv);
   // The eye is the same ink thinned, so the badge reads as one colour.
-  const e = 25 + scale8(sin8(phase + 26), 200);
+  const e = 100 + scale8(sin8(phase + 26), 155);    // stays above EYE_FLOOR
   fbTint(EYE_C, GREEN_PALE_R, GREEN_PALE_G, GREEN_PALE_B, e);
   fbTint(EYE_L, GREEN_R, GREEN_G, GREEN_B, e);
   fbTint(EYE_R, GREEN_R, GREEN_G, GREEN_B, e);
-  const t = scale8(e, 165);                          // wash the sclera with it
+  const t = 95 + scale8(e, 100);                     // wash the sclera with it
   fbTint(TOP_L, GREEN_PALE_R, GREEN_PALE_G, GREEN_PALE_B, t);
   fbTint(TOP_R, GREEN_PALE_R, GREEN_PALE_G, GREEN_PALE_B, t);
 }
@@ -679,7 +679,9 @@ function animCorners() {
 }
 
 function animCharge() {
-  const t = Math.floor(now) % 3600;
+  // The fronts that used to race out from the corners are gone -- that is
+  // Corner Pulse's job, and running it here made the two read as one animation.
+  const t = Math.floor(now) % 2900;
   fbFadeRing(178);
 
   if (t < 1500) {                                    // winding up
@@ -701,23 +703,8 @@ function animCharge() {
     fbSet(CORNER_BR, f, f, f); fbSet(CORNER_BL, f, f, f); fbSet(CORNER_TOP, f, f, f);
     fbFill(GRB_FIRST, N, f, f, f);
 
-  } else if (t < 2750) {                             // the discharge runs the edges
-    const p = Math.floor(((t - 1850) * 136) / 900);
-    for (let c = 0; c < 3; c++) {
-      const base = c * 16 * 16;
-      perimPoint((base + p) % (PERIM_COUNT * 16), 120, 220, 255);
-      perimPoint((base + PERIM_COUNT * 16 - p) % (PERIM_COUNT * 16), 120, 220, 255);
-      spillTail((base + p) % (PERIM_COUNT * 16), 70, 130, 150);
-    }
-    const e = 255 - Math.floor(((t - 1850) * 215) / 900);
-    fbSet(EYE_C, scale8(e, 200), scale8(e, 240), e);
-    fbSet(EYE_L, scale8(e, 80), scale8(e, 120), scale8(e, 200));
-    fbSet(EYE_R, scale8(e, 80), scale8(e, 120), scale8(e, 200));
-    fbSet(TOP_L, 0, scale8(e, 145), scale8(e, 205));
-    fbSet(TOP_R, 0, scale8(e, 145), scale8(e, 205));
-
   } else {
-    fbFadeAll(196);                                  // all the way down, loop closes
+    fbFadeAll(196);                                  // let it die away, loop closes clean
   }
 }
 
@@ -915,77 +902,62 @@ function animMatrix() {
   fbSet(TOP_R, 0, scale8(cursor, 155), scale8(cursor, 22));
 }
 
-function animGlitch() {
-  const hue = 34000;
-  for (let i = 0; i < RING; i++) {
-    const base = 30 + scale8(sin8(ringPos(i) * 6 + Math.floor(now / 18)), 60);
-    fbSetHSV(i, hue, 230, base);
-  }
-  if (rnd(100) < 30) {
-    const start = rnd(RING), len = rnd(3, 14), bad = rnd(2) ? 0 : 43000;
-    for (let k = 0; k < len; k++) fbSetHSV(ringIdx((start + k) % RING), bad, 255, rnd(120, 256));
-  }
-  for (let i = 0; i < RING; i++) if (rnd(100) < 8) fbSet(i, 0, 0, 0);
-  if (rnd(1000) < 25) {
-    for (let i = 0; i < RING; i++) { const v = rnd(60, 256); fbSet(i, v, scale8(v, 30), scale8(v, 200)); }
-  }
-  const stutter = rnd(100) < 18, e = stutter ? rnd(0, 90) : 200;
-  fbSetHSV(EYE_C, stutter ? 0 : hue, stutter ? 255 : 40, e);
-  fbSetHSV(EYE_L, hue, 220, stutter ? 20 : 130);
-  fbSetHSV(EYE_R, hue, 220, stutter ? 130 : 20);
-  fbSetHSV(TOP_L, hue, 240, rnd(100) < 15 ? 0 : 80);
-  fbSetHSV(TOP_R, hue, 240, rnd(100) < 15 ? 0 : 80);
-}
-
 function animBoot() {
   const t = Math.floor(now) % 5600;
   fbClear();
-  if (t < 1600) {
+
+  if (t < 1600) {                                    // trace the outline
     const lit = Math.floor((t * PERIM_COUNT) / 1600);
     for (let r = 0; r <= lit && r < PERIM_COUNT; r++) {
       const age = lit - r, v = age > 8 ? 45 : 255 - age * 26;
-      fbSet(PERIM[r], scale8(v, 40), scale8(v, 190), v);
+      fbTint(PERIM[r], GREEN_R, GREEN_G, GREEN_B, v);
     }
     for (let f = 0; f < FRAG_COUNT; f++) {           // tails fill in behind it
       const anchor = f * 16 + 12;
       for (let k = 0; k < 4; k++) {
         if (lit <= anchor + k) continue;
         const age = lit - anchor - k, v = age > 8 ? 45 : 255 - age * 26;
-        fbSet(f * FRAG_LEN + 16 + k, scale8(v, 40), scale8(v, 190), v);
+        fbTint(f * FRAG_LEN + 16 + k, GREEN_R, GREEN_G, GREEN_B, v);
       }
     }
-  } else if (t < 2600) {
-    fbFill(0, RING, 18, 60, 70);
+
+  } else if (t < 2600) {                             // corners lock in, one by one
+    for (let i = 0; i < RING; i++) fbTint(i, GREEN_R, GREEN_G, GREEN_B, 70);
     const s = t - 1600, corner = [CORNER_BR, CORNER_BL, CORNER_TOP];
     for (let c = 0; c < 3; c++) {
       if (s > c * 280) {
         const age = s - c * 280, v = age > 300 ? 200 : 255 - Math.floor((age * 55) / 300);
-        fbSet(corner[c], v, v, v);
+        fbTint(corner[c], GREEN_PALE_R, GREEN_PALE_G, GREEN_PALE_B, v);
       }
     }
-  } else if (t < 3800) {
-    fbFill(0, RING, 18, 60, 70);
-    fbSet(CORNER_BR, 200, 200, 200); fbSet(CORNER_BL, 200, 200, 200); fbSet(CORNER_TOP, 200, 200, 200);
+
+  } else if (t < 3800) {                             // the eye opens
+    for (let i = 0; i < RING; i++) fbTint(i, GREEN_R, GREEN_G, GREEN_B, 70);
+    fbTint(CORNER_BR,  GREEN_PALE_R, GREEN_PALE_G, GREEN_PALE_B, 200);
+    fbTint(CORNER_BL,  GREEN_PALE_R, GREEN_PALE_G, GREEN_PALE_B, 200);
+    fbTint(CORNER_TOP, GREEN_PALE_R, GREEN_PALE_G, GREEN_PALE_B, 200);
     const s = t - 2600, side = s > 400 ? 255 : Math.floor((s * 255) / 400);
-    fbSet(EYE_L, scale8(side, 120), scale8(side, 200), scale8(side, 255));
-    fbSet(EYE_R, scale8(side, 120), scale8(side, 200), scale8(side, 255));
+    fbTint(EYE_L, GREEN_R, GREEN_G, GREEN_B, side);
+    fbTint(EYE_R, GREEN_R, GREEN_G, GREEN_B, side);
     if (s > 400) {
       const c = Math.floor(((s - 400) * 255) / 800);
-      fbSet(EYE_C, c, c, c);
-      fbSet(TOP_L, scale8(c, 120), scale8(c, 200), c);
-      fbSet(TOP_R, scale8(c, 120), scale8(c, 200), c);
+      fbTint(EYE_C, GREEN_PALE_R, GREEN_PALE_G, GREEN_PALE_B, c);
+      fbTint(TOP_L, GREEN_PALE_R, GREEN_PALE_G, GREEN_PALE_B, c);
+      fbTint(TOP_R, GREEN_PALE_R, GREEN_PALE_G, GREEN_PALE_B, c);
     }
-  } else if (t < 4700) {
+
+  } else if (t < 4700) {                             // three confirmation flashes
     const on = Math.floor((t - 3800) / 150) % 2 === 0, v = on ? 220 : 20;
-    fbFill(0, RING, scale8(v, 40), scale8(v, 200), v);
-    fbFill(GRB_FIRST, N, v, v, v);
-  } else {
+    for (let i = 0; i < RING; i++) fbTint(i, GREEN_R, GREEN_G, GREEN_B, v);
+    for (let i = GRB_FIRST; i < N; i++) fbTint(i, GREEN_PALE_R, GREEN_PALE_G, GREEN_PALE_B, v);
+
+  } else {                                           // ready, holding
     const b = 60 + scale8(sin8(Math.floor((t - 4700) / 3)), 40);
-    fbFill(0, RING, 0, scale8(b, 210), b);
-    fbSet(CORNER_BR, 0, scale8(b, 200), qadd8(b, 40));
-    fbSet(CORNER_BL, 0, scale8(b, 200), qadd8(b, 40));
-    fbSet(CORNER_TOP, 0, scale8(b, 200), qadd8(b, 40));
-    fbFill(GRB_FIRST, N, 150, 200, 230);
+    for (let i = 0; i < RING; i++) fbTint(i, GREEN_R, GREEN_G, GREEN_B, b);
+    fbTint(CORNER_BR,  GREEN_R, GREEN_G, GREEN_B, qadd8(b, 50));
+    fbTint(CORNER_BL,  GREEN_R, GREEN_G, GREEN_B, qadd8(b, 50));
+    fbTint(CORNER_TOP, GREEN_R, GREEN_G, GREEN_B, qadd8(b, 50));
+    for (let i = GRB_FIRST; i < N; i++) fbTint(i, GREEN_PALE_R, GREEN_PALE_G, GREEN_PALE_B, 200);
   }
 }
 
@@ -1006,13 +978,29 @@ const ANIMS = [
   { fn: animVortex,       ms: 22, name: "Vortex",        fam: "Spiral"    },
   { fn: animRadar,        ms: 20, name: "Radar",         fam: "Spiral"    },
   { fn: animMatrix,       ms: 45, name: "Matrix Rain",   fam: "Glitch"    },
-  { fn: animGlitch,       ms: 70, name: "Glitch",        fam: "Glitch"    },
   { fn: animBoot,         ms: 25, name: "Boot Sequence", fam: "Glitch"    },
 ];
 </script>
 
 <script>
 "use strict";
+
+/* There is a blue power LED behind the eye and it is always lit, so "off" is not
+   a colour the badge can show there -- a dark eye reads as blue. Everything is
+   lifted to a floor that swamps it: an existing tint scales up with its hue
+   intact, a dark eye takes the house green. */
+const EYE_FLOOR = 95;
+function floorEye() {
+  for (let i = GRB_FIRST; i < N; i++) {
+    const k3 = i * 3;
+    const mx = Math.max(fb[k3], fb[k3 + 1], fb[k3 + 2]);
+    if (mx >= EYE_FLOOR) continue;
+    if (mx === 0) { fbTint(i, GREEN_R, GREEN_G, GREEN_B, EYE_FLOOR); continue; }
+    const k = Math.floor((EYE_FLOOR << 8) / mx);
+    for (let c = 0; c < 3; c++)
+      fb[k3 + c] = Math.min(255, (fb[k3 + c] * k + 255) >> 8);
+  }
+}
 
 /* --- output pipeline: gamma -> brightness -> current limit ---------------- */
 let reqMA = 0, limited = false;
@@ -1354,6 +1342,7 @@ function tick(ts) {
       else showFeedback();
     }
     if (!gFeedback) { a.fn(); gFrame++; }
+    floorEye();                                      // the power LED never gets the last word
     pushFrame();
     draw();
     fpsCount++;

@@ -7,7 +7,7 @@ The original conference sketch is preserved unchanged as `ConferenceCode_v1`.
 
 | | |
 |---|---|
-| `Fragments_NNA/Fragments_NNA.ino` | New firmware. 16 animations, non-blocking, brightness control. |
+| `Fragments_NNA/Fragments_NNA.ino` | New firmware. 15 animations, non-blocking, brightness control. |
 | `sim/bench.html` | Test bench. Runs every animation in a browser, same math as the badge. |
 | `ConferenceCode_v1` | The original conference sketch, untouched. |
 | `DC32 Stand v2.stl` | Printable stand. |
@@ -123,15 +123,16 @@ at the top, so nothing else needs touching.
 | 4 | Collide | Perimeter motion — two travellers head on; the eye holds their two colours |
 | 5 | Rainbow | Perimeter motion |
 | 6 | Corner Pulse | Perimeter motion |
-| 7 | Charge & Fire | Eye-driven |
+| 7 | Charge & Fire | Eye-driven — wind up, a beat of dark, then the whole badge |
 | 8 | Scanner | Eye-driven |
 | 9 | Aperture | Fragments — the boards close like iris blades, then the flash fires |
 | 10 | Fragment Chain | Fragments — the `DOUT`→`DIN` data path, made visible |
 | 11 | Vortex | Spiral — three arms winding inward, one per board |
 | 12 | Radar | Spiral — one beam sweeping, with a decaying wake |
 | 13 | Matrix Rain | Glitch — the badge as a wall, drops falling through it |
-| 14 | Glitch | Glitch |
-| 15 | Boot Sequence | Glitch |
+| 14 | Boot Sequence | Glitch — in the house green |
+
+Both spirals turn clockwise seen from the front.
 
 Both spirals turn clockwise seen from the front.
 
@@ -282,6 +283,13 @@ sketch:
   are measured off photographs of the lit badge — note that 63/64 are *not*
   near the apex despite the original's "top of board" comment; they flank the
   eye from above, inside the mandala.
+
+**There is a blue power LED behind the eye, and it is always on.** So "off" is
+not a colour the badge can show there — an eye left dark does not read as dark,
+it reads as blue. `floorEye()` lifts everything bound for the strip to
+`EYE_FLOOR`: a tint already in place scales up with its hue intact, and an eye
+left completely dark takes the house green instead of the power LED's blue.
+Raise `EYE_FLOOR` if blue still shows through.
 
 **LEDs 63 and 64 are aimed down into the white of the eye.** They are wash
 lights, not point accents: whatever colour they carry becomes the colour of the
