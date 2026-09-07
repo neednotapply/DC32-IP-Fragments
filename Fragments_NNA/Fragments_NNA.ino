@@ -123,13 +123,28 @@
 //
 // Scaling the whole colour preserves the ratio -- a power law scales all three
 // channels alike -- so these survive being dimmed by a breath or a fade.
-#define GREEN_R      159        // the ink
-#define GREEN_G      255
-#define GREEN_B      124
+// The hue is selectable at runtime -- short press, then press and hold -- so the
+// ink is generated rather than fixed. INK_SAT is what keeps it greenback rather
+// than neon: authored saturation of 131 lands near a 0.35 : 1.00 : 0.21 drive
+// ratio once gamma has crushed the minor channels.
+//
+// There is deliberately no paler variant. A tint desaturated far enough to sit
+// "between" the ink and white just reads as white on an emissive LED, which is
+// what the eye and its wash used to look like. The eye stands apart by being
+// brighter, not by being washed out.
+#define INK_SAT       131
+#define DEFAULT_HUE 18900       // greenback green
+#define HUE_STEP      900       // per ramp step; a full wheel is ~73 steps
 
-#define GREEN_PALE_R 216        // the same ink thinned, for the eye it lights
-#define GREEN_PALE_G 255
-#define GREEN_PALE_B 199
+uint16_t gHue    = DEFAULT_HUE;
+uint8_t  inkR = 124, inkG = 255, inkB = 124;
+
+void updateInk() {
+  uint32_t c = Adafruit_NeoPixel::ColorHSV(gHue, INK_SAT, 255);
+  inkR = (c >> 16) & 0xFF;
+  inkG = (c >>  8) & 0xFF;
+  inkB =  c        & 0xFF;
+}
 
 #define USE_GAMMA          1    // gamma-correct output; fades look far better
 #define GAMMA_EXP       2.2f    // see GAMMA[] below
@@ -148,6 +163,7 @@
 // if you have a board that really is wired active-low.
 #define BUTTON_ACTIVE_HIGH 1
 
+#define COMBO_MS         400    // window after a short press for the colour gesture
 #define BTN_DEBOUNCE_MS   25
 #define BTN_LONG_MS      700
 
@@ -488,7 +504,7 @@ void floorEye() {
     if (mx >= EYE_FLOOR) continue;
 
     if (mx == 0) {                                   // nothing there at all
-      fbTint(i, GREEN_R, GREEN_G, GREEN_B, EYE_FLOOR);
+      fbTint(i, inkR, inkG, inkB, EYE_FLOOR);
     } else {                                         // lift what is there, hue intact
       uint16_t k = ((uint16_t)EYE_FLOOR << 8) / mx;
       for (uint8_t c = 0; c < 3; c++) {
@@ -559,26 +575,26 @@ void animBreathe() {
   uint8_t b     = sin8(phase);
 
   uint8_t v = 14 + scale8(b, 120);
-  for (uint8_t i = 0; i < RING_COUNT; i++) fbTint(i, GREEN_R, GREEN_G, GREEN_B, v);
+  for (uint8_t i = 0; i < RING_COUNT; i++) fbTint(i, inkR, inkG, inkB, v);
 
   // Corners hold a little more than the edges so the triangle keeps its shape.
   uint8_t cv = 40 + scale8(b, 180);
-  fbTint(CORNER_BR,  GREEN_R, GREEN_G, GREEN_B, cv);
-  fbTint(CORNER_BL,  GREEN_R, GREEN_G, GREEN_B, cv);
-  fbTint(CORNER_TOP, GREEN_R, GREEN_G, GREEN_B, cv);
+  fbTint(CORNER_BR,  inkR, inkG, inkB, cv);
+  fbTint(CORNER_BL,  inkR, inkG, inkB, cv);
+  fbTint(CORNER_TOP, inkR, inkG, inkB, cv);
 
   // The eye is the same ink thinned, so the badge reads as one colour with the
   // eye as its highlight rather than a white thing sat on a green thing.
   // Kept above EYE_FLOOR at its dimmest, so the eye actually breathes instead of
   // being flattened against the floor at the bottom of every cycle.
   uint8_t e = 100 + scale8(sin8((uint8_t)(phase + 26)), 155);
-  fbTint(EYE_C, GREEN_PALE_R, GREEN_PALE_G, GREEN_PALE_B, e);
-  fbTint(EYE_L, GREEN_R, GREEN_G, GREEN_B, e);
-  fbTint(EYE_R, GREEN_R, GREEN_G, GREEN_B, e);
+  fbTint(EYE_C, inkR, inkG, inkB, e);
+  fbTint(EYE_L, inkR, inkG, inkB, e);
+  fbTint(EYE_R, inkR, inkG, inkB, e);
 
   uint8_t t = 95 + scale8(e, 100);                   // wash the sclera with it
-  fbTint(TOP_L, GREEN_PALE_R, GREEN_PALE_G, GREEN_PALE_B, t);
-  fbTint(TOP_R, GREEN_PALE_R, GREEN_PALE_G, GREEN_PALE_B, t);
+  fbTint(TOP_L, inkR, inkG, inkB, t);
+  fbTint(TOP_R, inkR, inkG, inkB, t);
 }
 
 // Whole badge drifting through the color wheel, with a slow gradient wrapped
@@ -1130,7 +1146,7 @@ void animBoot() {
     for (uint8_t r = 0; r <= lit && r < PERIM_COUNT; r++) {
       uint8_t age = (uint8_t)(lit - r);
       uint8_t v   = age > 8 ? 45 : (uint8_t)(255 - age * 26);
-      fbTint(PERIM[r], GREEN_R, GREEN_G, GREEN_B, v);
+      fbTint(PERIM[r], inkR, inkG, inkB, v);
     }
     // Each board's tail fills in behind the trace as it passes the attachment.
     for (uint8_t f = 0; f < FRAG_COUNT; f++) {
@@ -1139,54 +1155,54 @@ void animBoot() {
         if (lit <= anchor + k) continue;
         uint8_t age = (uint8_t)(lit - anchor - k);
         uint8_t v   = age > 8 ? 45 : (uint8_t)(255 - age * 26);
-        fbTint((uint8_t)(f * FRAG_LEN + 16 + k), GREEN_R, GREEN_G, GREEN_B, v);
+        fbTint((uint8_t)(f * FRAG_LEN + 16 + k), inkR, inkG, inkB, v);
       }
     }
 
   } else if (t < 2600) {                             // corners lock in, one by one
-    for (uint8_t i = 0; i < RING_COUNT; i++) fbTint(i, GREEN_R, GREEN_G, GREEN_B, 70);
+    for (uint8_t i = 0; i < RING_COUNT; i++) fbTint(i, inkR, inkG, inkB, 70);
     uint16_t s = t - 1600;
     const uint8_t corner[3] = { CORNER_BR, CORNER_BL, CORNER_TOP };
     for (uint8_t c = 0; c < 3; c++) {
       if (s > (uint16_t)c * 280) {
         uint16_t age = s - c * 280;
         uint8_t  v   = age > 300 ? 200 : (uint8_t)(255 - (age * 55) / 300);
-        fbTint(corner[c], GREEN_PALE_R, GREEN_PALE_G, GREEN_PALE_B, v);
+        fbTint(corner[c], inkR, inkG, inkB, v);
       }
     }
 
   } else if (t < 3800) {                             // the eye opens
-    for (uint8_t i = 0; i < RING_COUNT; i++) fbTint(i, GREEN_R, GREEN_G, GREEN_B, 70);
-    fbTint(CORNER_BR,  GREEN_PALE_R, GREEN_PALE_G, GREEN_PALE_B, 200);
-    fbTint(CORNER_BL,  GREEN_PALE_R, GREEN_PALE_G, GREEN_PALE_B, 200);
-    fbTint(CORNER_TOP, GREEN_PALE_R, GREEN_PALE_G, GREEN_PALE_B, 200);
+    for (uint8_t i = 0; i < RING_COUNT; i++) fbTint(i, inkR, inkG, inkB, 70);
+    fbTint(CORNER_BR,  inkR, inkG, inkB, 200);
+    fbTint(CORNER_BL,  inkR, inkG, inkB, 200);
+    fbTint(CORNER_TOP, inkR, inkG, inkB, 200);
 
     uint16_t s = t - 2600;
     uint8_t  side = s > 400 ? 255 : (uint8_t)((s * 255UL) / 400);
-    fbTint(EYE_L, GREEN_R, GREEN_G, GREEN_B, side);
-    fbTint(EYE_R, GREEN_R, GREEN_G, GREEN_B, side);
+    fbTint(EYE_L, inkR, inkG, inkB, side);
+    fbTint(EYE_R, inkR, inkG, inkB, side);
     if (s > 400) {
       uint8_t c = (uint8_t)(((s - 400) * 255UL) / 800);
-      fbTint(EYE_C, GREEN_PALE_R, GREEN_PALE_G, GREEN_PALE_B, c);
-      fbTint(TOP_L, GREEN_PALE_R, GREEN_PALE_G, GREEN_PALE_B, c);
-      fbTint(TOP_R, GREEN_PALE_R, GREEN_PALE_G, GREEN_PALE_B, c);
+      fbTint(EYE_C, inkR, inkG, inkB, c);
+      fbTint(TOP_L, inkR, inkG, inkB, c);
+      fbTint(TOP_R, inkR, inkG, inkB, c);
     }
 
   } else if (t < 4700) {                             // three confirmation flashes
     bool on = ((t - 3800) / 150) % 2 == 0;
     uint8_t v = on ? 220 : 20;
-    for (uint8_t i = 0; i < RING_COUNT; i++) fbTint(i, GREEN_R, GREEN_G, GREEN_B, v);
+    for (uint8_t i = 0; i < RING_COUNT; i++) fbTint(i, inkR, inkG, inkB, v);
     for (uint8_t i = GRB_FIRST; i < PIXEL_COUNT; i++)
-      fbTint(i, GREEN_PALE_R, GREEN_PALE_G, GREEN_PALE_B, v);
+      fbTint(i, inkR, inkG, inkB, v);
 
   } else {                                           // ready, holding
     uint8_t b = 60 + scale8(sin8((uint8_t)((t - 4700) / 3)), 40);
-    for (uint8_t i = 0; i < RING_COUNT; i++) fbTint(i, GREEN_R, GREEN_G, GREEN_B, b);
-    fbTint(CORNER_BR,  GREEN_R, GREEN_G, GREEN_B, qadd8(b, 50));
-    fbTint(CORNER_BL,  GREEN_R, GREEN_G, GREEN_B, qadd8(b, 50));
-    fbTint(CORNER_TOP, GREEN_R, GREEN_G, GREEN_B, qadd8(b, 50));
+    for (uint8_t i = 0; i < RING_COUNT; i++) fbTint(i, inkR, inkG, inkB, b);
+    fbTint(CORNER_BR,  inkR, inkG, inkB, qadd8(b, 50));
+    fbTint(CORNER_BL,  inkR, inkG, inkB, qadd8(b, 50));
+    fbTint(CORNER_TOP, inkR, inkG, inkB, qadd8(b, 50));
     for (uint8_t i = GRB_FIRST; i < PIXEL_COUNT; i++)
-      fbTint(i, GREEN_PALE_R, GREEN_PALE_G, GREEN_PALE_B, 200);
+      fbTint(i, inkR, inkG, inkB, 200);
   }
 }
 
@@ -1206,6 +1222,7 @@ struct Anim {
 };
 
 const Anim ANIMS[] = {
+  { animBoot,         25, "Boot Sequence" },   // what the badge wakes up to
   { animBreathe,      25, "Breathe"       },   // ambient
   { animDrift,        30, "Drift"         },
   { animPlasma,       28, "Plasma"        },
@@ -1220,7 +1237,6 @@ const Anim ANIMS[] = {
   { animVortex,       22, "Vortex"        },   // spirals, in polar coordinates
   { animRadar,        20, "Radar"         },
   { animMatrix,       45, "Matrix Rain"   },   // glitch / hacker
-  { animBoot,         25, "Boot Sequence" },
 };
 #define ANIM_COUNT (sizeof(ANIMS) / sizeof(ANIMS[0]))
 
@@ -1269,6 +1285,13 @@ void setMode(uint8_t m) {
 // 4 is enormous down at 8 and invisible up at 140. That keeps the ramp feeling
 // even the whole way along instead of crawling at the bottom and lurching at the
 // top. Roughly 60 steps end to end, so about two and a half seconds.
+// The hue wheel has no ends, so unlike brightness this simply keeps going round
+// rather than turning back at a limit.
+void rampHue() {
+  gHue = (uint16_t)(gHue + HUE_STEP);
+  updateInk();
+}
+
 void rampBrightness() {
   uint8_t step = (uint8_t)(gBright >> 4);
   if (step < 1) step = 1;
@@ -1294,6 +1317,9 @@ uint32_t btnEdgeAt    = 0;
 uint32_t btnDownAt    = 0;
 uint32_t btnNextRep   = 0;
 bool     btnLongFired = false;
+bool     btnCombo      = false;     // this hold is the second half of press-then-hold
+bool     btnComboArmed = false;
+uint32_t btnComboArm   = 0;
 
 void serviceButton() {
   // Normalised to pressed / not pressed at the top, so nothing below has to
@@ -1306,21 +1332,33 @@ void serviceButton() {
     if (btnStable) {
       btnDownAt    = gNow;
       btnLongFired = false;
+      btnCombo     = btnComboArmed && (gNow - btnComboArm) < COMBO_MS;
     } else if (!btnLongFired) {
       setMode((uint8_t)(gMode + 1));                 // short press
+      btnComboArmed = true;                          // arms the colour gesture
+      btnComboArm   = gNow;
     } else {
       // Report once on release rather than 25 times a second during the ramp.
-      Serial.printf("brightness %u/%u\n", gBright, BRIGHT_MAX);
+      if (btnCombo) Serial.printf("hue %u\n", gHue);
+      else          Serial.printf("brightness %u/%u\n", gBright, BRIGHT_MAX);
     }
   }
 
   if (btnStable) {
     if (!btnLongFired && (gNow - btnDownAt) >= BTN_LONG_MS) {
-      btnLongFired = true;
-      rampBrightness();
+      btnLongFired  = true;
+      btnComboArmed = false;
+      if (btnCombo) {
+        // The short press that armed this gesture already stepped the animation
+        // on. Put it back -- press-then-hold is meant to change colour, not
+        // mode -- and do it without the mode readout, since nothing moved.
+        setMode((uint8_t)(gMode + ANIM_COUNT - 1));
+        gFeedback = FB_NONE;
+      }
+      if (btnCombo) rampHue(); else rampBrightness();
       btnNextRep = gNow + BRIGHT_RAMP_MS;
     } else if (btnLongFired && (int32_t)(gNow - btnNextRep) >= 0) {
-      rampBrightness();                              // keep holding to keep going
+      if (btnCombo) rampHue(); else rampBrightness();
       btnNextRep = gNow + BRIGHT_RAMP_MS;
     }
   }
@@ -1341,6 +1379,7 @@ void setup() {
   randomSeed(esp_random());
 
   buildGeometry();
+  updateInk();
 
   strip.begin();
   strip.setBrightness(255);        // master brightness is handled in pushFrame
@@ -1353,8 +1392,9 @@ void setup() {
   setMode(START_MODE);
 
   Serial.printf("\nFragments: %u animations, brightness %u..%u.\n"
-                "  short press = next animation\n"
-                "  hold        = ramp brightness, turns round at each end\n",
+                "  short press        = next animation\n"
+                "  hold               = ramp brightness, turns round at each end\n"
+                "  press, then hold   = ramp colour\n",
                 (unsigned)ANIM_COUNT, BRIGHT_MIN, BRIGHT_MAX);
 }
 

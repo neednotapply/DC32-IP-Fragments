@@ -55,9 +55,10 @@ change, which is the quickest way to see whether the button is behaving:
 
 ```
 [0/15] Breathe
-Fragments: 16 animations, brightness 4..160.
-  short press = next animation
-  hold        = ramp brightness, turns round at each end
+Fragments: 15 animations, brightness 4..160.
+  short press        = next animation
+  hold               = ramp brightness, turns round at each end
+  press, then hold   = ramp colour
 ```
 
 ### If it will not connect
@@ -85,6 +86,12 @@ Built clean against esp32 core 3.3.11 with Adafruit NeoPixel 1.15.5:
 |---|---|
 | Short press | Next animation |
 | Hold (after 0.7s) | Ramp brightness, turning round at each end |
+| Press, then press and hold | Ramp the house colour |
+
+The colour gesture undoes its own side effect: the short press that arms it steps
+the animation on, and the hold steps it back, so you land on the animation you
+started from. Two ordinary short presses inside the window still advance twice,
+and a hold after the window has expired falls through to brightness.
 
 Both give a readout on the badge itself: a bar around the perimeter for
 brightness, or a count of lit pixels from the bottom-right corner for the
@@ -116,21 +123,23 @@ at the top, so nothing else needs touching.
 
 | # | Name | Family |
 |---|---|---|
-| 0 | Breathe | Ambient — the original `breathingBadge()`, finished, in the house green |
-| 1 | Drift | Ambient |
-| 2 | Plasma | Ambient |
-| 3 | Comet | Perimeter motion |
-| 4 | Collide | Perimeter motion — two travellers head on; the eye holds their two colours |
-| 5 | Rainbow | Perimeter motion |
-| 6 | Corner Pulse | Perimeter motion |
-| 7 | Charge & Fire | Eye-driven — wind up, a beat of dark, then the whole badge |
-| 8 | Scanner | Eye-driven |
-| 9 | Aperture | Fragments — the boards close like iris blades, then the flash fires |
-| 10 | Fragment Chain | Fragments — the `DOUT`→`DIN` data path, made visible |
-| 11 | Vortex | Spiral — three arms winding inward, one per board |
-| 12 | Radar | Spiral — one beam sweeping, with a decaying wake |
-| 13 | Matrix Rain | Glitch — the badge as a wall, drops falling through it |
-| 14 | Boot Sequence | Glitch — in the house green |
+| 0 | Boot Sequence | What the badge wakes up to |
+| 1 | Breathe | Ambient — the original `breathingBadge()`, finished |
+| 2 | Drift | Ambient |
+| 3 | Plasma | Ambient |
+| 4 | Comet | Perimeter motion |
+| 5 | Collide | Perimeter motion — two travellers head on; the eye holds their two colours |
+| 6 | Rainbow | Perimeter motion |
+| 7 | Corner Pulse | Perimeter motion |
+| 8 | Charge & Fire | Eye-driven — wind up, a beat of dark, then the whole badge |
+| 9 | Scanner | Eye-driven |
+| 10 | Aperture | Fragments — the boards close like iris blades, then the flash fires |
+| 11 | Fragment Chain | Fragments — the `DOUT`→`DIN` data path, made visible |
+| 12 | Vortex | Spiral — three arms winding inward, one per board |
+| 13 | Radar | Spiral — one beam sweeping, with a decaying wake |
+| 14 | Matrix Rain | Glitch — the badge as a wall, drops falling through it |
+
+Both spirals turn clockwise seen from the front.
 
 Both spirals turn clockwise seen from the front.
 
@@ -195,9 +204,14 @@ authored below roughly 80 does not reach the LED at all.**
 The same power law bites colour. It crushes the minor channels much harder than
 the dominant one, so authoring 55 red against 255 green does not give 22% red at
 the LED — it gives about 3%, and what should be a sage green comes out neon. The
-house green (`GREEN_R/G/B`) is written 159 : 255 : 124, which looks far too pale
-on the page and lands on 0.35 : 1.00 : 0.21 at the strip. Scaling all three
-channels together preserves the ratio, so a tint survives being dimmed.
+house ink is generated from a selectable hue at `INK_SAT` 131, landing on
+0.35 : 1.00 : 0.21 at the strip. Scaling all three channels together preserves
+the ratio, so a tint survives being dimmed.
+
+There is deliberately no paler variant of the ink. Anything desaturated far
+enough to sit between the ink and white just reads as *white* on an emissive
+LED — which is exactly what the eye and its wash looked like before. The eye
+stands apart by being brighter, not by being washed out.
 
 This is also the easiest way to write an animation that looks right in the
 framebuffer and is invisible on the badge — a dim background field authored at

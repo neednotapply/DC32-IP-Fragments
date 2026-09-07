@@ -209,7 +209,7 @@
         </div>
         <div class="transport">
           <button class="ctl" id="playBtn">Pause</button>
-          <button class="ctl" id="badgeBtn" title="Click for next animation, press and hold for brightness">Badge button</button>
+          <button class="ctl" id="badgeBtn" title="Click for next animation, hold for brightness, click-then-hold for colour">Badge button</button>
         </div>
       </div>
     </section>
@@ -230,6 +230,10 @@
           <div>
             <label class="row" for="spd">Speed <output id="spdOut">1.00&times;</output></label>
             <input type="range" id="spd" min="10" max="300" value="100" step="5">
+          </div>
+          <div>
+            <label class="row" for="hue">House colour <output id="hueOut">18900</output></label>
+            <input type="range" id="hue" min="0" max="65535" step="256" value="18900">
           </div>
           <label class="toggle"><input type="checkbox" id="idx"> Show LED indices</label>
           <label class="toggle"><input type="checkbox" id="paths"> Trace each board&rsquo;s 20 LEDs</label>
@@ -269,7 +273,7 @@
   <footer>
     <span>DC32 &middot; Illuminati Party&reg; &ldquo;Fragments&rdquo;</span>
     <span>15 animations &middot; brightness 4&ndash;160</span>
-    <span>Short press: next &middot; Hold: ramp brightness</span>
+    <span>Press: next &middot; Hold: brightness &middot; Press+hold: colour</span>
   </footer>
 </div>
 
@@ -286,12 +290,18 @@ const CORNER_BR = 3, CORNER_BL = 23, CORNER_TOP = 43;
 const EYE_C = 60, EYE_L = 61, EYE_R = 62, TOP_L = 63, TOP_R = 64;
 const BRIGHT_MIN = 4, BRIGHT_MAX = 160, BRIGHT_RAMP_MS = 40;
 
-/* The badge's house green: greenback, not neon. These look far too pale because
-   gamma runs before the brightness scale and crushes the minor channels much
-   harder than the dominant one -- 159:255:124 lands on 0.35:1.00:0.21 at the
-   LED. Scaling all three together preserves the ratio. */
-const GREEN_R = 159, GREEN_G = 255, GREEN_B = 124;
-const GREEN_PALE_R = 216, GREEN_PALE_G = 255, GREEN_PALE_B = 199;
+/* The house colour is a selectable hue. INK_SAT is what keeps it greenback and
+   not neon: authored saturation 131 lands near 0.35:1.00:0.21 at the LED once
+   gamma has crushed the minor channels. There is deliberately no paler variant --
+   anything desaturated enough to sit between the ink and white just reads white
+   on an emissive LED. The eye stands apart by being brighter. */
+const INK_SAT = 131, DEFAULT_HUE = 18900, HUE_STEP = 900;
+let gHue = DEFAULT_HUE, inkR = 159, inkG = 255, inkB = 124;
+function updateInk() {
+  const c = ColorHSV(gHue, INK_SAT, 255);
+  inkR = (c >> 16) & 255; inkG = (c >> 8) & 255; inkB = c & 255;
+}
+function rampHue() { gHue = u16(gHue + HUE_STEP); updateInk(); syncHue(); }
 const POWER_LIMIT_MA = 700;
 const TRI_ASPECT = 1.732;
 const EYE_CX = 0, EYE_CY = 41;
@@ -483,19 +493,19 @@ const t8 = d => Math.floor(now / d) & 255;
 function animBreathe() {
   const phase = t8(20), b = sin8(phase);
   const v = 14 + scale8(b, 120);
-  for (let i = 0; i < RING; i++) fbTint(i, GREEN_R, GREEN_G, GREEN_B, v);
+  for (let i = 0; i < RING; i++) fbTint(i, inkR, inkG, inkB, v);
   const cv = 40 + scale8(b, 180);
-  fbTint(CORNER_BR,  GREEN_R, GREEN_G, GREEN_B, cv);
-  fbTint(CORNER_BL,  GREEN_R, GREEN_G, GREEN_B, cv);
-  fbTint(CORNER_TOP, GREEN_R, GREEN_G, GREEN_B, cv);
+  fbTint(CORNER_BR,  inkR, inkG, inkB, cv);
+  fbTint(CORNER_BL,  inkR, inkG, inkB, cv);
+  fbTint(CORNER_TOP, inkR, inkG, inkB, cv);
   // The eye is the same ink thinned, so the badge reads as one colour.
   const e = 100 + scale8(sin8(phase + 26), 155);    // stays above EYE_FLOOR
-  fbTint(EYE_C, GREEN_PALE_R, GREEN_PALE_G, GREEN_PALE_B, e);
-  fbTint(EYE_L, GREEN_R, GREEN_G, GREEN_B, e);
-  fbTint(EYE_R, GREEN_R, GREEN_G, GREEN_B, e);
+  fbTint(EYE_C, inkR, inkG, inkB, e);
+  fbTint(EYE_L, inkR, inkG, inkB, e);
+  fbTint(EYE_R, inkR, inkG, inkB, e);
   const t = 95 + scale8(e, 100);                     // wash the sclera with it
-  fbTint(TOP_L, GREEN_PALE_R, GREEN_PALE_G, GREEN_PALE_B, t);
-  fbTint(TOP_R, GREEN_PALE_R, GREEN_PALE_G, GREEN_PALE_B, t);
+  fbTint(TOP_L, inkR, inkG, inkB, t);
+  fbTint(TOP_R, inkR, inkG, inkB, t);
 }
 
 function animDrift() {
@@ -910,60 +920,61 @@ function animBoot() {
     const lit = Math.floor((t * PERIM_COUNT) / 1600);
     for (let r = 0; r <= lit && r < PERIM_COUNT; r++) {
       const age = lit - r, v = age > 8 ? 45 : 255 - age * 26;
-      fbTint(PERIM[r], GREEN_R, GREEN_G, GREEN_B, v);
+      fbTint(PERIM[r], inkR, inkG, inkB, v);
     }
     for (let f = 0; f < FRAG_COUNT; f++) {           // tails fill in behind it
       const anchor = f * 16 + 12;
       for (let k = 0; k < 4; k++) {
         if (lit <= anchor + k) continue;
         const age = lit - anchor - k, v = age > 8 ? 45 : 255 - age * 26;
-        fbTint(f * FRAG_LEN + 16 + k, GREEN_R, GREEN_G, GREEN_B, v);
+        fbTint(f * FRAG_LEN + 16 + k, inkR, inkG, inkB, v);
       }
     }
 
   } else if (t < 2600) {                             // corners lock in, one by one
-    for (let i = 0; i < RING; i++) fbTint(i, GREEN_R, GREEN_G, GREEN_B, 70);
+    for (let i = 0; i < RING; i++) fbTint(i, inkR, inkG, inkB, 70);
     const s = t - 1600, corner = [CORNER_BR, CORNER_BL, CORNER_TOP];
     for (let c = 0; c < 3; c++) {
       if (s > c * 280) {
         const age = s - c * 280, v = age > 300 ? 200 : 255 - Math.floor((age * 55) / 300);
-        fbTint(corner[c], GREEN_PALE_R, GREEN_PALE_G, GREEN_PALE_B, v);
+        fbTint(corner[c], inkR, inkG, inkB, v);
       }
     }
 
   } else if (t < 3800) {                             // the eye opens
-    for (let i = 0; i < RING; i++) fbTint(i, GREEN_R, GREEN_G, GREEN_B, 70);
-    fbTint(CORNER_BR,  GREEN_PALE_R, GREEN_PALE_G, GREEN_PALE_B, 200);
-    fbTint(CORNER_BL,  GREEN_PALE_R, GREEN_PALE_G, GREEN_PALE_B, 200);
-    fbTint(CORNER_TOP, GREEN_PALE_R, GREEN_PALE_G, GREEN_PALE_B, 200);
+    for (let i = 0; i < RING; i++) fbTint(i, inkR, inkG, inkB, 70);
+    fbTint(CORNER_BR,  inkR, inkG, inkB, 200);
+    fbTint(CORNER_BL,  inkR, inkG, inkB, 200);
+    fbTint(CORNER_TOP, inkR, inkG, inkB, 200);
     const s = t - 2600, side = s > 400 ? 255 : Math.floor((s * 255) / 400);
-    fbTint(EYE_L, GREEN_R, GREEN_G, GREEN_B, side);
-    fbTint(EYE_R, GREEN_R, GREEN_G, GREEN_B, side);
+    fbTint(EYE_L, inkR, inkG, inkB, side);
+    fbTint(EYE_R, inkR, inkG, inkB, side);
     if (s > 400) {
       const c = Math.floor(((s - 400) * 255) / 800);
-      fbTint(EYE_C, GREEN_PALE_R, GREEN_PALE_G, GREEN_PALE_B, c);
-      fbTint(TOP_L, GREEN_PALE_R, GREEN_PALE_G, GREEN_PALE_B, c);
-      fbTint(TOP_R, GREEN_PALE_R, GREEN_PALE_G, GREEN_PALE_B, c);
+      fbTint(EYE_C, inkR, inkG, inkB, c);
+      fbTint(TOP_L, inkR, inkG, inkB, c);
+      fbTint(TOP_R, inkR, inkG, inkB, c);
     }
 
   } else if (t < 4700) {                             // three confirmation flashes
     const on = Math.floor((t - 3800) / 150) % 2 === 0, v = on ? 220 : 20;
-    for (let i = 0; i < RING; i++) fbTint(i, GREEN_R, GREEN_G, GREEN_B, v);
-    for (let i = GRB_FIRST; i < N; i++) fbTint(i, GREEN_PALE_R, GREEN_PALE_G, GREEN_PALE_B, v);
+    for (let i = 0; i < RING; i++) fbTint(i, inkR, inkG, inkB, v);
+    for (let i = GRB_FIRST; i < N; i++) fbTint(i, inkR, inkG, inkB, v);
 
   } else {                                           // ready, holding
     const b = 60 + scale8(sin8(Math.floor((t - 4700) / 3)), 40);
-    for (let i = 0; i < RING; i++) fbTint(i, GREEN_R, GREEN_G, GREEN_B, b);
-    fbTint(CORNER_BR,  GREEN_R, GREEN_G, GREEN_B, qadd8(b, 50));
-    fbTint(CORNER_BL,  GREEN_R, GREEN_G, GREEN_B, qadd8(b, 50));
-    fbTint(CORNER_TOP, GREEN_R, GREEN_G, GREEN_B, qadd8(b, 50));
-    for (let i = GRB_FIRST; i < N; i++) fbTint(i, GREEN_PALE_R, GREEN_PALE_G, GREEN_PALE_B, 200);
+    for (let i = 0; i < RING; i++) fbTint(i, inkR, inkG, inkB, b);
+    fbTint(CORNER_BR,  inkR, inkG, inkB, qadd8(b, 50));
+    fbTint(CORNER_BL,  inkR, inkG, inkB, qadd8(b, 50));
+    fbTint(CORNER_TOP, inkR, inkG, inkB, qadd8(b, 50));
+    for (let i = GRB_FIRST; i < N; i++) fbTint(i, inkR, inkG, inkB, 200);
   }
 }
 
 
 /* --- animation table (mirrors ANIMS[] in the sketch) ---------------------- */
 const ANIMS = [
+  { fn: animBoot,         ms: 25, name: "Boot Sequence", fam: "Wake"      },
   { fn: animBreathe,      ms: 25, name: "Breathe",       fam: "Ambient"   },
   { fn: animDrift,        ms: 30, name: "Drift",         fam: "Ambient"   },
   { fn: animPlasma,       ms: 28, name: "Plasma",        fam: "Ambient"   },
@@ -978,7 +989,6 @@ const ANIMS = [
   { fn: animVortex,       ms: 22, name: "Vortex",        fam: "Spiral"    },
   { fn: animRadar,        ms: 20, name: "Radar",         fam: "Spiral"    },
   { fn: animMatrix,       ms: 45, name: "Matrix Rain",   fam: "Glitch"    },
-  { fn: animBoot,         ms: 25, name: "Boot Sequence", fam: "Glitch"    },
 ];
 </script>
 
@@ -995,7 +1005,7 @@ function floorEye() {
     const k3 = i * 3;
     const mx = Math.max(fb[k3], fb[k3 + 1], fb[k3 + 2]);
     if (mx >= EYE_FLOOR) continue;
-    if (mx === 0) { fbTint(i, GREEN_R, GREEN_G, GREEN_B, EYE_FLOOR); continue; }
+    if (mx === 0) { fbTint(i, inkR, inkG, inkB, EYE_FLOOR); continue; }
     const k = Math.floor((EYE_FLOOR << 8) / mx);
     for (let c = 0; c < 3; c++)
       fb[k3 + c] = Math.min(255, (fb[k3 + c] * k + 255) >> 8);
@@ -1252,6 +1262,8 @@ $("spd").addEventListener("input", e => {
   speed = e.target.value / 100;
   $("spdOut").textContent = speed.toFixed(2) + "×";
 });
+function syncHue() { $("hue").value = gHue; $("hueOut").textContent = gHue; }
+$("hue").addEventListener("input", e => { gHue = +e.target.value; updateInk(); syncHue(); });
 $("idx").addEventListener("change", e => { showIdx = e.target.checked; draw(); });
 $("paths").addEventListener("change", e => { showPaths = e.target.checked; draw(); });
 
@@ -1259,13 +1271,19 @@ $("paths").addEventListener("change", e => { showPaths = e.target.checked; draw(
    time so the hold-to-repeat feels the way it will in your hand. */
 const badgeBtn = $("badgeBtn");
 let btnDown = false, btnDownAt = 0, btnLongFired = false, btnNextRep = 0;
+let btnCombo = false, btnComboArmed = false, btnComboArm = 0;
+const COMBO_MS = 400;
 function pressStart() {
   btnDown = true; btnDownAt = performance.now(); btnLongFired = false;
+  btnCombo = btnComboArmed && (btnDownAt - btnComboArm) < COMBO_MS;
   badgeBtn.classList.add("pressed");
 }
 function pressEnd() {
   if (!btnDown) return;
-  if (!btnLongFired) setMode(gMode + 1, true);
+  if (!btnLongFired) {
+    setMode(gMode + 1, true);
+    btnComboArmed = true; btnComboArm = performance.now();   // arms the colour gesture
+  }
   btnDown = false; badgeBtn.classList.remove("pressed");
 }
 badgeBtn.addEventListener("pointerdown", e => { e.preventDefault(); pressStart(); });
@@ -1277,9 +1295,17 @@ badgeBtn.addEventListener("keyup", e => { if (e.key === " " || e.key === "Enter"
 function serviceButton(ts) {
   if (!btnDown) return;
   if (!btnLongFired && ts - btnDownAt >= BTN_LONG_MS) {
-    btnLongFired = true; rampBrightness(); btnNextRep = ts + BRIGHT_RAMP_MS;
+    btnLongFired = true; btnComboArmed = false;
+    if (btnCombo) {
+      // The short press that armed this already stepped the animation on; put it
+      // back, since the gesture means colour, not mode.
+      setMode(gMode - 1, false); gFeedback = 0;
+    }
+    if (btnCombo) rampHue(); else rampBrightness();
+    btnNextRep = ts + BRIGHT_RAMP_MS;
   } else if (btnLongFired && ts >= btnNextRep) {
-    rampBrightness(); btnNextRep = ts + BRIGHT_RAMP_MS;
+    if (btnCombo) rampHue(); else rampBrightness();
+    btnNextRep = ts + BRIGHT_RAMP_MS;
   }
 }
 
@@ -1350,7 +1376,7 @@ function tick(ts) {
   updateTelemetry(ts);
 }
 
-syncMode(); syncBright();
+syncMode(); syncBright(); updateInk(); syncHue();
 ANIMS[gMode].fn(); gFrame++; pushFrame(); draw();   // render one frame at rest
 requestAnimationFrame(tick);
 </script>
