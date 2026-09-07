@@ -43,6 +43,31 @@ and enumerates a port either way, so a port appearing tells you nothing about
 whether the ESP32 has power — a badge left switched off looks exactly like a
 wiring fault.
 
+### From the browser, with nothing installed
+
+The [hosted test bench](https://neednotapply.github.io/DC32_Fragments_NNA/) can
+flash the badge itself — press **Flash badge**, pick the port, done. It uses
+[ESP Web Tools](https://esphome.github.io/esp-web-tools/) over Web Serial, so it
+needs Chrome or Edge and an `https` page; the pre-built image lives in
+`firmware/`. Disconnect the bench first if it is already linked, since the two
+cannot hold the same port at once.
+
+To refresh that image after changing the firmware:
+
+```bash
+arduino-cli compile --fqbn esp32:esp32:esp32 --output-dir /tmp/fw Fragments_NNA
+esptool --chip esp32 merge-bin -o firmware/fragments-esp32.bin \
+  0x1000  /tmp/fw/Fragments_NNA.ino.bootloader.bin \
+  0x8000  /tmp/fw/Fragments_NNA.ino.partitions.bin \
+  0xe000  "$(find ~/.arduino15/packages/esp32 -name boot_app0.bin | head -1)" \
+  0x10000 /tmp/fw/Fragments_NNA.ino.bin
+```
+
+Merge only the used region as above — `arduino-cli`'s own `.merged.bin` is padded
+to the full 4 MB flash size, which is eleven times larger for no benefit.
+
+### From a toolchain
+
 In the IDE, open `Fragments_NNA/Fragments_NNA.ino` and press Upload. Or:
 
 ```bash
@@ -181,84 +206,73 @@ of writes through it in an evening of fiddling. Waiting for the quiet turns a
 whole ramp into a single write. A record that points past the end of the
 animation table — after the list shrinks, say — is discarded rather than used.
 
-## Wireless control
+## Control over USB serial
 
-Over **BLE**, not WiFi — see [Why not WiFi](#why-not-wifi). There are three ways
-in, and they work at the same time: the test bench over Web Bluetooth, any MIDI
-controller app, or raw GATT from something like nRF Connect.
+The radio on this board is unusable — see [Why the radio is dead](#why-the-radio-is-dead)
+— so the badge is driven down the same USB lead that powers and flashes it.
 
-The badge advertises as `Fragments` and carries its whole state in one
-characteristic:
+The protocol is line-based ASCII at 115200 baud, so you can drive it by hand
+from `screen`, `minicom` or the Arduino serial monitor:
 
-| | |
+| send | does |
 |---|---|
-| Service | `0xFFF0` |
-| Characteristic | `0xFFF1` — read, write, notify |
-| Payload | 4 bytes: `animation`, `brightness`, `hue` little-endian |
+| `?` | report state |
+| `l` | list animations |
+| `n` | next animation |
+| `m <n>` | select animation `n` |
+| `b <n>` | brightness, 4..160 |
+| `h <n>` | hue, 0..65535 |
 
-Write it to set them, read it to get them, and it notifies on every change — so
-pressing the physical button reaches the browser as readily as the other way
-round. Everything written is range-checked; anything in radio range can write it,
-and an out-of-range animation would index off the end of the table.
+The badge replies `S <mode> <bright> <hue>` after anything that changes state —
+including a press of the physical button — so whatever is on the other end stays
+in step. Out-of-range values are refused with `ERR`, since a bad animation index
+would walk off the end of the table.
 
-The test bench is the remote. Open it in Chrome or Edge (desktop or Android —
-Web Bluetooth is not available in Safari) and press **Connect badge**. The
-preview keeps running locally, using the same integer maths the badge is running,
-so you are watching the badge rather than a video of it.
-
-### As a MIDI controller target
-
-The badge also presents itself as a **BLE MIDI device**, which is a standard
-profile — Apple wrote the spec, and iOS, macOS, Android and Windows all speak it
-natively. So any of the free MIDI controller apps will drive it, with faders and
-pads, with nothing to install and no page to host:
-
-| MIDI | does |
-|---|---|
-| CC 1 (mod wheel) | brightness |
-| CC 2 | hue |
-| Program change | picks the animation |
-| Note on | picks the animation, for pad grids |
-
-It is only a GATT service with two well-known UUIDs, so it costs a few hundred
-bytes and no library. Both services are advertised together — a MIDI app and the
-test bench can be connected at the same time.
-
-### Why not WiFi
-
-This was a soft AP first and it would not work on this board. The failure is
-worth writing down, because everything reports healthy:
-
-- `softAP()` returns true; the driver reads back the right SSID, `ssid_hidden 0`,
-  WPA2 *and* open, channel 1 *and* 11, 19.5 dBm, 100 ms beacon interval
-- receive is perfect — the badge hears 41 networks, the nearest at −51 dBm
-- transmit is fine — BLE advertising from the same antenna is picked up at −40 dBm
-- erasing NVS to force PHY recalibration changed nothing
-- yielding in `loop()` so the WiFi task is never starved changed nothing
-- **core 2.0.17 and core 3.3.11 fail identically**, so it is not a regression
-- invisible at 2 dBm as well as at 19.5, so it is not the supply sagging under
-  a transmit burst
-- two independent clients, a laptop and a phone, never see the beacon
-
-So the radio works in both directions and the fault is specific to AP beaconing.
-Station mode is the one path left untested; it would also be the better shape,
-since a badge that *joins* a hotspot can serve the page on it.
-`WIFI_ENABLED 1` and `BLE_ENABLED 0` will build it for anyone whose board does
-not have the problem — the page and the HTTP endpoints are still there. The two
-radios are mutually exclusive; both stacks together overflow the partition.
-
-`tools/make_webpage.py` takes `sim/bench.html`, hides what only makes sense on a
-desk, appends the layer that talks to the badge over HTTP, gzips it and writes
-`Fragments_NNA/webpage.h`. Re-run it after editing the bench:
-
-```bash
-python3 tools/make_webpage.py
+```
+screen /dev/ttyUSB0 115200
 ```
 
-**Neither radio is free.** A soft AP costs well over a hundred milliamps; BLE
-advertising is far cheaper but not nothing. `BLE_ENABLED 0` compiles it out, and
-both flags are overridable from the command line, which is how the off-target
-test harness builds the animation code without a radio stack.
+### From the test bench
+
+Open `sim/bench.html` in **Chrome or Edge**, press **Connect badge** and pick the
+badge's port. The page then mirrors the badge both ways: move a slider and the
+badge follows; press the badge's button and the page follows.
+
+Two constraints worth knowing. Web Serial is Chrome/Edge only — Firefox and
+Safari do not implement it. And it needs a top-level page: in a cross-origin
+iframe it requires `allow="serial"`, so open the file directly rather than
+through an embedded copy.
+
+### Why the radio is dead
+
+This board's 40 MHz crystal runs **+153.8 ppm fast**, measured by regressing the
+badge's own `millis()` against an NTP-disciplined clock over 596 samples — and
+confirmed at +155.6 ppm with the CPU reclocked from 240 MHz to 80 MHz, which
+rules out a PLL or timer artefact. The same crystal sets the RF carrier, so it
+sits about **375 kHz off frequency at 2.44 GHz**: six times outside WiFi's ±25 ppm
+tolerance and three times outside BLE's ±50 ppm.
+
+That single fault explains everything observed:
+
+| symptom | why |
+|---|---|
+| WiFi receive is perfect | a receiver locks AFC onto the incoming carrier, cancelling its own error |
+| WiFi transmit never heard | no AP can demodulate a carrier that far off |
+| BLE advertising seen by one laptop only | GFSK is robust; that radio's capture range is just wide enough |
+| a phone one inch away sees nothing | different receiver, tighter capture range |
+| BLE connections never establish | the badge's replies are never decoded, so the link never completes |
+
+The clincher was a control test: a phone that could not see the badge from one
+inch found *a laptop* advertising the identical BLE MIDI UUID within seconds.
+One receiver decoding what a closer one cannot is off-frequency transmit, not
+weak transmit.
+
+No firmware setting trims a crystal — the ESP32-D0WDQ6 has no internal load-cap
+trim, that arrived with the C3/S3 — so this is a hardware fault. The error is in
+the *fast* direction, which points at load capacitance being too low.
+
+Dropping both radio stacks took the build from **86% of flash to 24%**.
+
 
 ## Test bench
 

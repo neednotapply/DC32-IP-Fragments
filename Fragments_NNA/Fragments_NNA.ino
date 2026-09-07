@@ -62,56 +62,6 @@
 #include <esp_system.h>
 #include <Preferences.h>
 
-// Wireless control, over BLE.
-//
-// This was WiFi first and the soft AP would not work on this board: softAP()
-// succeeds, the driver reports the right SSID, channel, 19.5 dBm and a 100 ms
-// beacon, and no client ever sees it. The radio itself is fine -- the badge
-// hears 41 networks at -51 dBm, and BLE advertising from the same antenna is
-// picked up at -48 dBm. Whatever it is, it is specific to AP beaconing.
-//
-// BLE works, costs far less power than an AP, and Web Bluetooth lets the test
-// bench drive it straight from a browser. WIFI_ENABLED is left in place for
-// anyone whose board does not have the problem, but the two are mutually
-// exclusive -- both stacks together will not fit the default partition.
-#ifndef WIFI_ENABLED
-  #define WIFI_ENABLED 0
-#endif
-#ifndef BLE_ENABLED
-  #define BLE_ENABLED 1
-#endif
-#if WIFI_ENABLED && BLE_ENABLED
-  #error "Enable one radio or the other -- both will not fit."
-#endif
-
-#if BLE_ENABLED
-  #include <BLEDevice.h>
-  #include <BLEServer.h>
-  #include <BLEUtils.h>
-  #include <BLE2902.h>
-  #define BLE_NAME      "Fragments"
-  #define BLE_SERVICE   ((uint16_t)0xFFF0)
-  #define BLE_STATE     ((uint16_t)0xFFF1)
-
-  // The badge also presents itself as a BLE MIDI device. That is a standard
-  // profile -- Apple wrote the spec and iOS, macOS, Android and Windows all
-  // speak it natively -- which means any of the free MIDI controller apps can
-  // drive the badge with faders and pads, with nothing to install on the badge
-  // side and no page to host. It is only a GATT service with two well-known
-  // UUIDs, so it costs a few hundred bytes and no library.
-  #define MIDI_SERVICE  "03b80e5a-ede8-4b33-a751-6ce34ec4c700"
-  #define MIDI_CHAR     "7772e5db-3868-4112-a1a9-f2669d106bf3"
-  #define MIDI_CC_BRIGHT 1      // mod wheel
-  #define MIDI_CC_HUE    2
-#endif
-#if WIFI_ENABLED
-  #include <WiFi.h>
-  #include <WebServer.h>
-  #include <DNSServer.h>
-  #include "webpage.h"
-  #define AP_SSID "Fragments"
-  #define AP_PASS "allseeing"    // >= 8 chars for WPA2; "" for an open network
-#endif
 
 // ---------------------------------------------------------------------------
 // Configuration -- the knobs worth touching
@@ -1448,227 +1398,88 @@ void serviceButton() {
   }
 }
 
-#if BLE_ENABLED
 /* ===========================================================================
- *  WIRELESS CONTROL, OVER BLE
+ *  CONTROL, OVER USB SERIAL
  *
- *  One characteristic carries the whole of the badge's state as four bytes:
- *  animation, brightness, and the hue as a little-endian pair. Writing it sets
- *  them; reading gets them; a notification goes out whenever they change, so a
- *  press on the physical button reaches the browser as readily as the other way
- *  round. Everything written is range-checked -- anything in radio range can
- *  write it, and an out-of-range animation would index off the end of the table.
+ *  This board's 40 MHz crystal runs about 154 ppm fast, which puts the radio
+ *  some 375 kHz off frequency -- six times outside WiFi's tolerance and three
+ *  times outside BLE's. Receiving is unaffected, because a receiver locks onto
+ *  the incoming carrier, but nothing this badge transmits can be relied upon,
+ *  and no firmware setting trims a crystal. So control arrives over the same
+ *  USB lead that powers and flashes it.
+ *
+ *  The protocol is line-based ASCII, which means it can be driven by hand from
+ *  screen or minicom as readily as by the test bench through the browser's Web
+ *  Serial API:
+ *
+ *    ?        report state       -> S <mode> <bright> <hue>
+ *    l        list animations    -> L <index> <name> per line, then LEND
+ *    n        next animation
+ *    m <n>    select animation
+ *    b <n>    brightness, BRIGHT_MIN..BRIGHT_MAX
+ *    h <n>    hue, 0..65535
+ *
+ *  Every change emits an S line, including one made with the physical button,
+ *  so whatever is on the other end stays in step with the badge.
  * ===========================================================================
  */
-BLECharacteristic *stateChar = nullptr;
-bool     bleLinked  = false;
-uint32_t blePubAt   = 0;
-uint8_t  blePubMode = 255, blePubBright = 0;
-uint16_t blePubHue  = 0;
+char     serBuf[40];
+uint8_t  serLen    = 0;
+uint8_t  serMode   = 255, serBright = 0;
+uint16_t serHue    = 0;
 
-void blePublish() {
-  if (!stateChar) return;
-  uint8_t v[4] = { gMode, gBright, (uint8_t)(gHue & 0xFF), (uint8_t)(gHue >> 8) };
-  stateChar->setValue(v, 4);
-  if (bleLinked) stateChar->notify();
-  blePubMode = gMode; blePubBright = gBright; blePubHue = gHue; blePubAt = gNow;
+void serReport() {
+  Serial.printf("S %u %u %u\n", (unsigned)gMode, (unsigned)gBright, (unsigned)gHue);
+  serMode = gMode; serBright = gBright; serHue = gHue;
 }
 
-class StateCallbacks : public BLECharacteristicCallbacks {
-  void onWrite(BLECharacteristic *c) override {
-    uint8_t *d = c->getData();
-    if (!d || c->getLength() < 4) return;
-    uint8_t  m = d[0], b = d[1];
-    uint16_t h = (uint16_t)(d[2] | ((uint16_t)d[3] << 8));
-    if (m < ANIM_COUNT && m != gMode) setMode(m);
-    if (b >= BRIGHT_MIN && b <= BRIGHT_MAX && b != gBright) { gBright = b; settingsTouch(); }
-    if (h != gHue) { gHue = h; updateInk(); settingsTouch(); }
-    blePubMode = gMode; blePubBright = gBright; blePubHue = gHue;   // do not echo back
+void serCommand(char *line) {
+  char  c   = line[0];
+  char *arg = line + 1;
+  while (*arg == ' ') arg++;
+  bool hasArg = (*arg >= '0' && *arg <= '9');
+  long v      = atol(arg);
+
+  switch (c) {
+    case '?':
+      serReport(); return;
+    case 'l': case 'L':
+      for (uint8_t i = 0; i < ANIM_COUNT; i++)
+        Serial.printf("L %u %s\n", (unsigned)i, ANIMS[i].name);
+      Serial.println("LEND");
+      return;
+    case 'n': case 'N':
+      setMode((uint8_t)(gMode + 1)); settingsTouch(); break;
+    case 'm': case 'M':
+      if (!hasArg || v < 0 || v >= ANIM_COUNT) { Serial.println("ERR mode"); return; }
+      setMode((uint8_t)v); settingsTouch(); break;
+    case 'b': case 'B':
+      if (!hasArg || v < BRIGHT_MIN || v > BRIGHT_MAX) { Serial.println("ERR bright"); return; }
+      gBright = (uint8_t)v; settingsTouch(); break;
+    case 'h': case 'H':
+      if (!hasArg || v < 0 || v > 65535) { Serial.println("ERR hue"); return; }
+      gHue = (uint16_t)v; updateInk(); settingsTouch(); break;
+    default:
+      Serial.println("ERR ?"); return;
   }
-};
-
-// A MIDI controller speaks in sevens: 0..127 for everything.
-static void midiBright(uint8_t v) {
-  uint8_t b = (uint8_t)(BRIGHT_MIN + ((uint16_t)v * (BRIGHT_MAX - BRIGHT_MIN)) / 127);
-  if (b != gBright) { gBright = b; settingsTouch(); }
-}
-static void midiHue(uint8_t v) {
-  uint16_t h = (uint16_t)(((uint32_t)v * 65535UL) / 127);
-  if (h != gHue) { gHue = h; updateInk(); settingsTouch(); }
-}
-static void midiAnim(uint8_t v) {
-  uint8_t m = (uint8_t)(v % ANIM_COUNT);
-  if (m != gMode) setMode(m);
+  serReport();
 }
 
-// BLE MIDI packets are a header byte, then a timestamp byte before each message.
-// Both have the top bit set, as do status bytes, so the only way to tell them
-// apart is to keep the position: after the header it alternates timestamp,
-// status, data. Running status is not handled -- no controller worth using
-// bothers with it over BLE.
-class MidiCallbacks : public BLECharacteristicCallbacks {
-  void onWrite(BLECharacteristic *c) override {
-    uint8_t *d = c->getData();
-    size_t   n = c->getLength();
-    if (!d || n < 3) return;
-
-    size_t i = 1;                                  // skip the header byte
-    while (i + 1 < n) {
-      if (!(d[i] & 0x80)) break;                   // expected a timestamp
-      uint8_t st = d[++i];
-      if (!(st & 0x80)) break;
-      uint8_t kind = st & 0xF0;
-      if (kind == 0xB0 && i + 2 < n) {             // control change
-        uint8_t cc = d[i + 1], val = d[i + 2];
-        if (cc == MIDI_CC_BRIGHT)   midiBright(val);
-        else if (cc == MIDI_CC_HUE) midiHue(val);
-        i += 3;
-      } else if (kind == 0xC0 && i + 1 < n) {      // program change
-        midiAnim(d[i + 1]);
-        i += 2;
-      } else if (kind == 0x90 && i + 2 < n) {      // note on, for pad grids
-        if (d[i + 2]) midiAnim(d[i + 1]);
-        i += 3;
-      } else break;
+void serService() {
+  while (Serial.available()) {
+    char ch = (char)Serial.read();
+    if (ch == '\r') continue;
+    if (ch == '\n') {
+      serBuf[serLen] = 0;
+      if (serLen) serCommand(serBuf);
+      serLen = 0;
+      continue;
     }
+    if (serLen < sizeof(serBuf) - 1) serBuf[serLen++] = ch;
   }
-};
-
-class ServerCallbacks : public BLEServerCallbacks {
-  void onConnect(BLEServer *) override { bleLinked = true;  Serial.println("ble: linked"); }
-  void onDisconnect(BLEServer *srv) override {
-    bleLinked = false; Serial.println("ble: dropped");
-    srv->startAdvertising();                       // be findable again
-  }
-};
-
-void bleBegin() {
-  BLEDevice::init(BLE_NAME);
-  BLEServer *srv = BLEDevice::createServer();
-  srv->setCallbacks(new ServerCallbacks());
-
-  BLEService *svc = srv->createService(BLEUUID(BLE_SERVICE));
-  stateChar = svc->createCharacteristic(
-      BLEUUID(BLE_STATE),
-      BLECharacteristic::PROPERTY_READ  | BLECharacteristic::PROPERTY_WRITE |
-      BLECharacteristic::PROPERTY_WRITE_NR | BLECharacteristic::PROPERTY_NOTIFY);
-  stateChar->addDescriptor(new BLE2902());
-  stateChar->setCallbacks(new StateCallbacks());
-  blePublish();
-  svc->start();
-
-  // The MIDI service, so any MIDI controller app can drive the badge.
-  BLEService *midi = srv->createService(BLEUUID(MIDI_SERVICE));
-  BLECharacteristic *midiChar = midi->createCharacteristic(
-      BLEUUID(MIDI_CHAR),
-      BLECharacteristic::PROPERTY_READ | BLECharacteristic::PROPERTY_WRITE_NR |
-      BLECharacteristic::PROPERTY_NOTIFY);
-  midiChar->addDescriptor(new BLE2902());
-  midiChar->setCallbacks(new MidiCallbacks());
-  midi->start();
-
-  BLEAdvertising *adv = BLEDevice::getAdvertising();
-  adv->addServiceUUID(BLEUUID(BLE_SERVICE));
-  adv->addServiceUUID(BLEUUID(MIDI_SERVICE));
-  adv->setScanResponse(true);
-  BLEDevice::startAdvertising();
-
-  Serial.printf("ble: advertising as \"%s\", service 0x%04X, state 0x%04X\n",
-                BLE_NAME, BLE_SERVICE, BLE_STATE);
-  Serial.printf("ble: mac %s\n", BLEDevice::getAddress().toString().c_str());
-  Serial.printf("midi: also a BLE MIDI device -- CC%u brightness, CC%u hue, "
-                "program change or note picks the animation\n",
-                MIDI_CC_BRIGHT, MIDI_CC_HUE);
+  // The button moves the same state; report it so the far end keeps up.
+  if (gMode != serMode || gBright != serBright || gHue != serHue) serReport();
 }
-
-// Push local changes out, but not faster than a client can care about: a
-// brightness ramp moves the value twenty-five times a second and there is no
-// point notifying every step of it.
-void bleService() {
-  if (gMode == blePubMode && gBright == blePubBright && gHue == blePubHue) return;
-  if ((gNow - blePubAt) < 120) return;
-  blePublish();
-}
-#endif
-
-#if WIFI_ENABLED
-/* ===========================================================================
- *  WIRELESS CONTROL, OVER WIFI
- *
- *  The badge runs a soft AP and serves the test bench itself, so the page you
- *  get is the same one in sim/, generated into webpage.h by
- *  tools/make_webpage.py. That keeps the animation code to one source of truth:
- *  the preview on your phone is running the identical integer maths the badge
- *  is, rather than a second implementation drifting out of step.
- *
- *  The page pushes changes as they happen and polls for state, so pressing the
- *  physical button shows up in the browser and vice versa.
- * ===========================================================================
- */
-WebServer server(80);
-DNSServer  dns;
-
-void handleRoot() {
-  server.sendHeader("Content-Encoding", "gzip");
-  server.sendHeader("Cache-Control", "max-age=86400");
-  server.send_P(200, "text/html", (PGM_P)WEBPAGE_GZ, WEBPAGE_GZ_LEN);
-}
-
-void handleState() {
-  char buf[112];
-  snprintf(buf, sizeof buf,
-           "{\"mode\":%u,\"bright\":%u,\"hue\":%u,\"count\":%u}",
-           gMode, gBright, gHue, (unsigned)ANIM_COUNT);
-  server.send(200, "application/json", buf);
-}
-
-void handleSet() {
-  // Everything is range-checked here rather than trusted: this is reachable by
-  // anyone who can join the AP, and an out-of-range mode would index off the
-  // end of the animation table.
-  if (server.hasArg("mode")) {
-    long v = server.arg("mode").toInt();
-    if (v >= 0 && v < (long)ANIM_COUNT && v != gMode) setMode((uint8_t)v);
-  }
-  if (server.hasArg("bright")) {
-    long v = server.arg("bright").toInt();
-    if (v >= BRIGHT_MIN && v <= BRIGHT_MAX) { gBright = (uint8_t)v; settingsTouch(); }
-  }
-  if (server.hasArg("hue")) {
-    long v = server.arg("hue").toInt();
-    if (v >= 0 && v <= 65535) { gHue = (uint16_t)v; updateInk(); settingsTouch(); }
-  }
-  server.send(200, "text/plain", "ok");
-}
-
-void webBegin() {
-  WiFi.mode(WIFI_AP);
-  // Check it. softAP() reports whether the radio actually came up, and printing
-  // an address without asking is how you end up hunting a network that was never
-  // broadcast.
-  if (!WiFi.softAP(AP_SSID, AP_PASS)) {
-    Serial.println("wifi: softAP() refused to start");
-    return;
-  }
-  IPAddress ip = WiFi.softAPIP();
-  Serial.printf("wifi: mode=%d channel=%u mac=%s\n",
-                (int)WiFi.getMode(), WiFi.channel(), WiFi.softAPmacAddress().c_str());
-
-  dns.start(53, "*", ip);                          // captive portal
-  server.on("/", handleRoot);
-  server.on("/state", handleState);
-  server.on("/set", HTTP_GET,  handleSet);
-  server.on("/set", HTTP_POST, handleSet);
-  server.onNotFound([]() {                         // anything else lands on the page
-    server.sendHeader("Location", "/", true);
-    server.send(302, "text/plain", "");
-  });
-  server.begin();
-
-  Serial.printf("wifi: \"%s\" up at http://%s  (%u bytes of page)\n",
-                AP_SSID, ip.toString().c_str(), (unsigned)WEBPAGE_GZ_LEN);
-}
-#endif
 
 /* ===========================================================================
  *  SETUP / LOOP
@@ -1707,12 +1518,8 @@ void setup() {
                 "  press, then hold   = ramp colour\n",
                 (unsigned)ANIM_COUNT, BRIGHT_MIN, BRIGHT_MAX);
 
-#if BLE_ENABLED
-  bleBegin();
-#endif
-#if WIFI_ENABLED
-  webBegin();
-#endif
+  Serial.println("  serial            = ? l n  m<n> b<n> h<n>");
+  serReport();
 }
 
 void loop() {
@@ -1720,13 +1527,7 @@ void loop() {
 
   serviceButton();
   settingsService();
-#if BLE_ENABLED
-  bleService();
-#endif
-#if WIFI_ENABLED
-  dns.processNextRequest();
-  server.handleClient();
-#endif
+  serService();
 
 #if AUTO_CYCLE_MS > 0
   if (gNow - gLastAuto >= AUTO_CYCLE_MS) { gLastAuto = gNow; setMode((uint8_t)(gMode + 1)); }

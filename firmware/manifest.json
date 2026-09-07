@@ -1,0 +1,13 @@
+{
+  "name": "Fragments NNA",
+  "version": "2026.09.07",
+  "new_install_prompt_erase": true,
+  "builds": [
+    {
+      "chipFamily": "ESP32",
+      "parts": [
+        { "path": "fragments-esp32.bin", "offset": 0 }
+      ]
+    }
+  ]
+}

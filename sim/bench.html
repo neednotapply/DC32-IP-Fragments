@@ -1,5 +1,6 @@
 <title>Fragments Test Bench</title>
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<script type="module" src="https://unpkg.com/esp-web-tools@10/dist/web/install-button.js?module"></script>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@500;600;700&family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500&display=swap">
 <style>
   /* A deliberately single-theme page: this is a dark chamber for watching LEDs
@@ -218,8 +219,13 @@
         <div class="transport">
           <button class="ctl" id="playBtn">Pause</button>
           <button class="ctl" id="badgeBtn" title="Click for next animation, hold for brightness, click-then-hold for colour">Badge button</button>
-          <button class="ctl" id="bleBtn" hidden>Connect badge</button>
-          <span class="link" id="bleLink" hidden>not linked</span>
+          <button class="ctl" id="serBtn" hidden>Connect badge</button>
+          <span class="link" id="serLink" hidden>not linked</span>
+          <esp-web-install-button manifest="../firmware/manifest.json">
+            <button class="ctl" slot="activate" title="Flash the current firmware straight from this page">Flash badge</button>
+            <span class="link" slot="unsupported">flashing needs Chrome or Edge</span>
+            <span class="link" slot="not-allowed">flashing needs an https page</span>
+          </esp-web-install-button>
         </div>
       </div>
     </section>
@@ -1346,79 +1352,108 @@ function tick(ts) {
   updateTelemetry(ts);
 }
 
-/* --- drive a real badge over Web Bluetooth ------------------------------- *
- * The badge carries the whole of its state in one characteristic: animation,
- * brightness, and the hue as a little-endian pair. Write it to set them, read
- * it to get them, and it notifies whenever they change -- so a press on the
- * physical button reaches this page as readily as the other way round.
+/* --- drive a real badge over Web Serial ---------------------------------- *
+ * This badge's radio is unusable -- its 40 MHz crystal runs ~154 ppm fast,
+ * putting the carrier about 375 kHz off, well outside what WiFi or BLE will
+ * tolerate -- so the badge is driven down the USB lead instead. The protocol is
+ * line-based ASCII: we send "m <n>", "b <n>" and "h <n>", and the badge answers
+ * with "S <mode> <bright> <hue>" whenever anything changes, including a press
+ * of its physical button. So the badge reaches this page as readily as the
+ * other way round.
+ *
+ * Web Serial is Chrome and Edge only, and needs a user gesture to pick a port.
  *
  * The preview keeps running locally either way. It is the same integer maths the
  * badge is running, so what you see here is what the badge is doing rather than
  * a video of it.                                                              */
-const BLE_SERVICE = 0xfff0, BLE_STATE = 0xfff1;
-let bleChar = null, bleBusy = false, bleFrom = false;
-let bleSent = { m: -1, b: -1, h: -1 };
+const BAUD = 115200;
+let serPort = null, serWriter = null, serFrom = false;
+let serSent = { m: -1, b: -1, h: -1 };
+const serEnc = new TextEncoder();
 
-function bleStatus(text, on) {
-  const el = $("bleLink");
+function serStatus(text, on) {
+  const el = $("serLink");
   el.textContent = text; el.classList.toggle("on", !!on);
-  $("bleBtn").classList.toggle("live", !!on);
-  $("bleBtn").textContent = on ? "Linked" : "Connect badge";
+  $("serBtn").classList.toggle("live", !!on);
+  $("serBtn").textContent = on ? "Linked" : "Connect badge";
 }
 
-function bleAdopt(dv) {
-  if (!dv || dv.byteLength < 4) return;
-  const m = dv.getUint8(0), b = dv.getUint8(1);
-  const h = dv.getUint8(2) | (dv.getUint8(3) << 8);
-  bleFrom = true;                                  // do not echo this straight back
+function serAdopt(m, b, h) {
+  serFrom = true;                                  // do not echo this straight back
   if (m !== gMode && m < ANIMS.length) setMode(m, false);
   if (b !== gBright) { gBright = b; syncBright(); }
   if (h !== gHue)    { gHue = h; updateInk(); syncHue(); }
-  bleFrom = false;
-  bleSent = { m: gMode, b: gBright, h: gHue };
+  serFrom = false;
+  serSent = { m: gMode, b: gBright, h: gHue };
 }
 
-async function bleConnect() {
+async function serSend(cmd) {
+  if (!serWriter) return;
+  try { await serWriter.write(serEnc.encode(cmd + "\n")); }
+  catch (e) { serStatus("write failed", false); }
+}
+
+async function serRead(port) {
+  const dec = new TextDecoderStream();
+  port.readable.pipeTo(dec.writable).catch(() => {});
+  const rd = dec.readable.getReader();
+  let buf = "";
   try {
-    bleStatus("choosing", false);
-    const dev = await navigator.bluetooth.requestDevice({
-      filters: [{ services: [BLE_SERVICE] }]
-    });
-    dev.addEventListener("gattserverdisconnected", () => {
-      bleChar = null; bleStatus("dropped", false);
-    });
-    bleStatus("connecting", false);
-    const gatt = await dev.gatt.connect();
-    const svc  = await gatt.getPrimaryService(BLE_SERVICE);
-    bleChar    = await svc.getCharacteristic(BLE_STATE);
-    await bleChar.startNotifications();
-    bleChar.addEventListener("characteristicvaluechanged",
-                             e => bleAdopt(e.target.value));
-    bleAdopt(await bleChar.readValue());
-    bleStatus("linked", true);
+    for (;;) {
+      const { value, done } = await rd.read();
+      if (done) break;
+      buf += value;
+      let i;
+      while ((i = buf.indexOf("\n")) >= 0) {
+        const line = buf.slice(0, i).trim();
+        buf = buf.slice(i + 1);
+        const m = line.match(/^S (\d+) (\d+) (\d+)$/);
+        if (m) serAdopt(+m[1], +m[2], +m[3]);
+      }
+      if (buf.length > 4096) buf = "";              // never grow without bound
+    }
+  } catch (e) { /* the port went away */ }
+  serPort = null; serWriter = null;
+  serStatus("dropped", false);
+}
+
+async function serConnect() {
+  if (serPort) {                                   // already linked: let go
+    try { serWriter && serWriter.releaseLock(); await serPort.close(); } catch (e) {}
+    serPort = null; serWriter = null;
+    serStatus("not linked", false);
+    return;
+  }
+  try {
+    serStatus("choosing", false);
+    const port = await navigator.serial.requestPort();
+    await port.open({ baudRate: BAUD });
+    serPort = port;
+    serWriter = port.writable.getWriter();
+    serStatus("linked", true);
+    serRead(port);
+    // Opening the port toggles DTR/RTS, which resets the board. Give it a
+    // moment to boot, then ask for state -- it also reports state on its own
+    // at startup, so either answer gets us in step.
+    setTimeout(() => serSend("?"), 1600);
   } catch (err) {
-    bleChar = null;
-    bleStatus(err && err.name === "NotFoundError" ? "no badge chosen" : "failed", false);
+    serPort = null; serWriter = null;
+    serStatus(err && err.name === "NotFoundError" ? "no badge chosen" : "failed", false);
   }
 }
 
 setInterval(async () => {
-  if (!bleChar || bleBusy || bleFrom) return;
-  if (gMode === bleSent.m && gBright === bleSent.b && gHue === bleSent.h) return;
-  bleBusy = true;
-  bleSent = { m: gMode, b: gBright, h: gHue };
-  try {
-    await bleChar.writeValueWithoutResponse(
-      new Uint8Array([gMode, gBright, gHue & 0xff, gHue >> 8]));
-  } catch (e) { bleStatus("write failed", false); }
-  bleBusy = false;
+  if (!serWriter || serFrom) return;
+  if (gMode   !== serSent.m) { serSent.m = gMode;   await serSend("m " + gMode); }
+  if (gBright !== serSent.b) { serSent.b = gBright; await serSend("b " + gBright); }
+  if (gHue    !== serSent.h) { serSent.h = gHue;    await serSend("h " + gHue); }
 }, 150);
 
-if (navigator.bluetooth) {
-  $("bleBtn").hidden = false;
-  $("bleLink").hidden = false;
-  $("bleBtn").addEventListener("click", bleConnect);
-  bleStatus("not linked", false);
+if (navigator.serial) {
+  $("serBtn").hidden = false;
+  $("serLink").hidden = false;
+  $("serBtn").addEventListener("click", serConnect);
+  serStatus("not linked", false);
 }
 
 syncMode(); syncBright(); updateInk(); syncHue();
