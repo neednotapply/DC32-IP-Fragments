@@ -4,7 +4,7 @@ const os = require('node:os');
 const path = require('node:path');
 const { execFileSync } = require('node:child_process');
 
-const source = fs.readFileSync(path.join(__dirname, '../DC32_Fragments_NNA.ino'), 'utf8');
+const source = fs.readFileSync(path.join(__dirname, '../DC32_Fragments.ino'), 'utf8');
 const start = source.indexOf('bool     btnRaw');
 const end = source.indexOf('/* ===========================================================================\n *  CONTROL, OVER USB SERIAL');
 assert.ok(start >= 0 && end > start, 'Firmware button-handler boundaries not found');

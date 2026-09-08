@@ -9,9 +9,11 @@ The original conference sketch is preserved unchanged as `ConferenceCode_v1`.
 
 | | |
 |---|---|
-| `DC32_Fragments_NNA.ino` | Firmware. 13 animations, persistent output settings, USB serial control. |
-| `sim/bench.html` | Browser simulator, live badge control, and firmware installer. |
+| `DC32_Fragments.ino` | Firmware. 13 animations, persistent output settings, USB serial control. |
+| `studio.html` | Browser simulator, live badge control, and firmware installer. |
 | `firmware/` | Pre-built images and the browser installer manifest. |
+| `manifest.webmanifest`, `sw.js` | Web app manifest and offline service worker. |
+| `assets/` | Badge mark, favicon and installable app icons. |
 | `tests/button-gestures.cjs` | Host-side tests of the firmware button handler. |
 | `tests/animations.cjs` | Firmware and simulator animation regression checks. |
 | `ConferenceCode_v1` | The original conference sketch, untouched. |
@@ -24,9 +26,10 @@ The original conference sketch is preserved unchanged as `ConferenceCode_v1`.
 Either toolchain works. The IDE is the gentler path; `arduino-cli` is what this
 fork was built and flashed with.
 
-The repository root is the Arduino sketch folder. Keep its name
-`DC32_Fragments_NNA` so it matches `DC32_Fragments_NNA.ino`, as required by
-Arduino. When extracting a GitHub ZIP, rename the resulting `-main` folder.
+The repository root is the Arduino sketch folder. Name the checkout folder
+`DC32_Fragments` so it matches `DC32_Fragments.ino`, as required by Arduino.
+For example, clone with `git clone https://github.com/neednotapply/DC32-IP-Fragments.git DC32_Fragments`.
+When extracting a GitHub ZIP, rename the resulting folder to `DC32_Fragments`.
 Run the commands below from the repository root.
 
 **Arduino IDE**
@@ -62,13 +65,30 @@ needs Chrome or Edge and an `https` page; the pre-built image lives in
 `firmware/`. Disconnect the studio first if it is already linked, since the two
 cannot hold the same port at once.
 
+### Installing the studio
+
+The studio is a Progressive Web App, so it can be installed and then opened
+without a browser window — useful on a conference floor, where the hall wifi is
+the least reliable part of the setup. Use **Install** in the transport row, or
+the browser's own install control in the address bar.
+
+A service worker (`sw.js`) caches the page and all four firmware images at
+install time, so a badge can still be flashed with the network completely gone.
+Pages and firmware are fetched network-first and fall back to the cache, which
+means an online visit always flashes the current build and never a stale one;
+icons and fonts are served cache-first. Web Serial is still Chrome or Edge on
+desktop only — installing it on a phone gets the simulator, not the flasher.
+
+The one gap: ESP Web Tools loads some of itself lazily from unpkg, so the very
+first flash has to happen online. After that it is cached with the rest.
+
 To refresh the images after changing the firmware (using ESP32 core 3.3.11):
 
 ```bash
 arduino-cli compile --fqbn esp32:esp32:esp32 --output-dir /tmp/fw .
-cp /tmp/fw/DC32_Fragments_NNA.ino.bootloader.bin firmware/bootloader.bin
-cp /tmp/fw/DC32_Fragments_NNA.ino.partitions.bin firmware/partitions.bin
-cp /tmp/fw/DC32_Fragments_NNA.ino.bin firmware/application.bin
+cp /tmp/fw/DC32_Fragments.ino.bootloader.bin firmware/bootloader.bin
+cp /tmp/fw/DC32_Fragments.ino.partitions.bin firmware/partitions.bin
+cp /tmp/fw/DC32_Fragments.ino.bin firmware/application.bin
 cp ~/.arduino15/packages/esp32/hardware/esp32/3.3.11/tools/partitions/boot_app0.bin firmware/boot_app0.bin
 esptool --chip esp32 merge-bin -o firmware/fragments-esp32.bin \
   0x1000  firmware/bootloader.bin \
@@ -88,7 +108,7 @@ without Improv support.
 
 ### From a toolchain
 
-In the IDE, open `DC32_Fragments_NNA.ino` and press Upload. Or:
+In the IDE, open `DC32_Fragments.ino` and press Upload. Or:
 
 ```bash
 arduino-cli compile --fqbn esp32:esp32:esp32 .
@@ -306,7 +326,7 @@ screen /dev/ttyUSB0 115200
 
 ### From the Badge Studio
 
-Open `sim/bench.html` in **Chrome or Edge**, press **Connect badge** and pick the
+Open `studio.html` in **Chrome or Edge**, press **Connect badge** and pick the
 badge's port. The page then mirrors the badge both ways: move a slider and the
 badge follows; press the badge's button and the page follows.
 With updated firmware, **Live badge** renders the actual output stream, including
@@ -353,11 +373,14 @@ Dropping both radio stacks took the build from **86% of flash to 24%**.
 
 ## Badge Studio
 
-Open `sim/bench.html` in any browser — no build step, no server. It runs the
+Open `studio.html` in any browser — no build step, no server. It runs the
 same sine table, the same `ColorHSV`, the same gamma curve and the same current
 limiter as the firmware, so colors and timing carry over. Click an animation,
 drag the speed slider, hover an LED for its strand index and live RGB, or press
 and hold the on-screen badge button to feel the real control scheme.
+
+It is also installable, and caches itself and the firmware for offline use — see
+[Installing the studio](#installing-the-studio).
 
 ---
 

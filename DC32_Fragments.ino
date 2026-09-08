@@ -1,6 +1,6 @@
 /* ============================================================================
  *  FRAGMENTS -- DC32 Illuminati Party(R) badge
- *  Custom animation firmware   |   fork: neednotapply/DC32_Fragments_NNA
+ *  Custom animation firmware   |   fork: neednotapply/DC32-IP-Fragments
  *
  *  Original conference sketch by Kredence (kept alongside this file as
  *  ConferenceCode_v1), itself a hacked-up copy of Adafruit's NeoPixel demo.

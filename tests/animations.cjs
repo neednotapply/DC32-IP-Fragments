@@ -6,8 +6,8 @@ const vm = require('node:vm');
 const { execFileSync } = require('node:child_process');
 
 const root = path.join(__dirname, '..');
-const html = fs.readFileSync(path.join(root, 'sim/bench.html'), 'utf8');
-const source = fs.readFileSync(path.join(root, 'DC32_Fragments_NNA.ino'), 'utf8');
+const html = fs.readFileSync(path.join(root, 'studio.html'), 'utf8');
+const source = fs.readFileSync(path.join(root, 'DC32_Fragments.ino'), 'utf8');
 const animationScript = [...html.matchAll(/<script>([\s\S]*?)<\/script>/g)][0][1];
 const context = vm.createContext({ assert });
 vm.runInContext(animationScript + '\nconst EYE_FLOOR = 95;', context);

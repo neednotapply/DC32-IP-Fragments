@@ -2,6 +2,16 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Badge Studio</title>
+<meta name="description" content="Simulate, tune and flash the DC32 Illuminati Party badge from the browser.">
+<link rel="icon" href="assets/favicon.ico" sizes="16x16 32x32 48x48">
+<link rel="icon" href="assets/icon-192.png" type="image/png" sizes="192x192">
+<link rel="apple-touch-icon" href="assets/apple-touch-icon.png">
+<link rel="manifest" href="manifest.webmanifest">
+<meta name="theme-color" content="#101214">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Badge Studio">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <script type="module" src="https://unpkg.com/esp-web-tools@10.1.1/dist/web/install-button.js?module"></script>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@500;600;700&family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500&display=swap">
@@ -45,6 +55,12 @@
   header { display: flex; align-items: flex-end; justify-content: space-between;
            gap: 24px; flex-wrap: wrap; padding-bottom: 16px;
            border-bottom: 1px solid var(--trace); }
+  .brand { display: flex; align-items: center; gap: 13px; }
+  /* The mark is line art with no fill, so it needs its own faint emission to
+     sit at the same visual weight as the gold accents further down the page. */
+  .brand .mark { width: 46px; height: auto; flex: 0 0 auto;
+                 filter: drop-shadow(0 0 9px rgba(133,187,101,.20)); }
+  @media (max-width: 560px) { .brand .mark { width: 38px; } }
   .brand h1 { font-family: var(--f-display); font-weight: 700; font-size: 26px;
               letter-spacing: .01em; margin: 0; text-wrap: balance; }
   .brand p  { margin: 4px 0 0; color: var(--silk-dim); max-width: 62ch; font-size: 13px; }
@@ -199,8 +215,11 @@
 <div class="studio">
   <header>
     <div class="brand">
-      <h1>Badge Studio</h1>
-      <p>DC32 Illuminati Party badge</p>
+      <img class="mark" src="assets/logo-mark.png" width="743" height="750" alt="" decoding="async">
+      <div>
+        <h1>Badge Studio</h1>
+        <p>DC32 Illuminati Party badge</p>
+      </div>
     </div>
     <div class="hw">
       <div><span>Boards</span><b>3 &times; 20</b></div>
@@ -231,11 +250,12 @@
           <button class="ctl" id="badgeBtn" title="Click to leave a menu, otherwise next animation; hold for brightness; hold again within 3 seconds to switch brightness / colour">Badge button</button>
           <button class="ctl" id="serBtn" hidden>Connect badge</button>
           <span class="link" id="serLink" hidden>not linked</span>
-          <esp-web-install-button manifest="../firmware/manifest.json">
+          <esp-web-install-button manifest="firmware/manifest.json">
             <button class="ctl" id="flashBtn" slot="activate" title="Leave Erase device unchecked to keep badge settings">Flash badge</button>
             <span class="link" slot="unsupported">flashing needs Chrome or Edge</span>
             <span class="link" slot="not-allowed">flashing needs an https page</span>
           </esp-web-install-button>
+          <button class="ctl" id="installBtn" hidden title="Install Badge Studio so it opens in its own window and works without wifi">Install</button>
         </div>
       </div>
     </section>
@@ -303,7 +323,7 @@
 
 <script>
 /* ---------------------------------------------------------------------------
-   A transliteration of DC32_Fragments_NNA.ino. Every helper below has the same name
+   A transliteration of DC32_Fragments.ino. Every helper below has the same name
    and the same integer behaviour as its C++ counterpart, uint8/uint16 wrapping
    included, so what this page shows is what the badge does.
    --------------------------------------------------------------------------- */
@@ -1833,4 +1853,39 @@ if (navigator.serial) {
 syncMode(); syncBright(); syncSpeed(); updateInk(); syncHue();
 ANIMS[gMode].fn(); gFrame++; pushFrame(); draw();   // render one frame at rest
 requestAnimationFrame(tick);
+</script>
+
+<script type="module">
+/* Progressive install. The studio is a single page plus a firmware payload, so
+   there is nothing here but a service worker and the browser's own prompt. */
+if ('serviceWorker' in navigator && location.protocol.startsWith('http')) {
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('sw.js')
+      .catch(err => console.warn('Badge Studio: offline support unavailable -', err));
+  });
+}
+
+const installBtn = document.getElementById('installBtn');
+let deferredPrompt = null;
+
+window.addEventListener('beforeinstallprompt', event => {
+  event.preventDefault();          // keep the mini-infobar out of the LED chamber
+  deferredPrompt = event;
+  installBtn.hidden = false;
+});
+
+installBtn.addEventListener('click', async () => {
+  if (!deferredPrompt) return;
+  installBtn.disabled = true;
+  deferredPrompt.prompt();
+  await deferredPrompt.userChoice;
+  deferredPrompt = null;           // a prompt is single-use
+  installBtn.hidden = true;
+  installBtn.disabled = false;
+});
+
+window.addEventListener('appinstalled', () => {
+  deferredPrompt = null;
+  installBtn.hidden = true;
+});
 </script>
