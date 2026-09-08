@@ -53,7 +53,7 @@ wiring fault.
 
 ### From the browser, with nothing installed
 
-The [hosted Badge Studio](https://neednotapply.github.io/DC32_Fragments_NNA/) can
+The [hosted Badge Studio](https://neednotapply.github.io/DC32-IP-Fragments/) can
 flash the badge itself — press **Flash badge**, pick the port, done. It uses
 [ESP Web Tools](https://esphome.github.io/esp-web-tools/) over Web Serial, so it
 needs Chrome or Edge and an `https` page; the pre-built image lives in
