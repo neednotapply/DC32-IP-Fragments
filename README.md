@@ -1,4 +1,4 @@
-# DC32_Fragments
+# DC32 IP Badge - Fragments
 
 Welcome to the Illuminati Party® badge 'Fragments' for 2024 (DC32).
 
