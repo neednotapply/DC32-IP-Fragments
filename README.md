@@ -10,7 +10,7 @@ The original conference sketch is preserved unchanged as `ConferenceCode_v1`.
 | | |
 |---|---|
 | `DC32_Fragments.ino` | Firmware. 13 animations, persistent output settings, USB serial control. |
-| `studio.html` | Browser simulator, live badge control, and firmware installer. |
+| `index.html` | Browser simulator, live badge control, and firmware installer. |
 | `firmware/` | Pre-built images and the browser installer manifest. |
 | `manifest.webmanifest`, `sw.js` | Web app manifest and offline service worker. |
 | `assets/` | Badge mark, favicon and installable app icons. |
@@ -326,7 +326,7 @@ screen /dev/ttyUSB0 115200
 
 ### From the Badge Studio
 
-Open `studio.html` in **Chrome or Edge**, press **Connect badge** and pick the
+Open `index.html` in **Chrome or Edge**, press **Connect badge** and pick the
 badge's port. The page then mirrors the badge both ways: move a slider and the
 badge follows; press the badge's button and the page follows.
 With updated firmware, **Live badge** renders the actual output stream, including
@@ -373,7 +373,7 @@ Dropping both radio stacks took the build from **86% of flash to 24%**.
 
 ## Badge Studio
 
-Open `studio.html` in any browser — no build step, no server. It runs the
+Open `index.html` in any browser — no build step, no server. It runs the
 same sine table, the same `ColorHSV`, the same gamma curve and the same current
 limiter as the firmware, so colors and timing carry over. Click an animation,
 drag the speed slider, hover an LED for its strand index and live RGB, or press

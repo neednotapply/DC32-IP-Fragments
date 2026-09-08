@@ -7,11 +7,12 @@
  * badge - fresh when the network answers, last-known-good when it does not.
  */
 
-/* Bump this whenever a file under assets/ changes. Pages and firmware are
- * fetched network-first so they refresh on their own, but assets are served
- * cache-first: without a new cache name a returning visitor keeps the old
- * icons forever. (v1 -> v2 retired the gold mark.) */
-const VERSION = 'badge-studio-v2';
+/* Bump this whenever a file under assets/ changes, or the shell is reshaped.
+ * Pages and firmware are fetched network-first so they refresh on their own,
+ * but assets are served cache-first: without a new cache name a returning
+ * visitor keeps the old icons forever. (v1 -> v2 retired the gold mark;
+ * v2 -> v3 folded studio.html into index.html.) */
+const VERSION = 'badge-studio-v3';
 const SHELL    = `${VERSION}-shell`;
 const RUNTIME  = `${VERSION}-runtime`;
 const KEEP     = new Set([SHELL, RUNTIME]);
@@ -20,7 +21,6 @@ const KEEP     = new Set([SHELL, RUNTIME]);
 const CORE = [
   './',
   './index.html',
-  './studio.html',
   './manifest.webmanifest',
   './assets/logo-mark.png',
   './assets/favicon.ico',
@@ -104,7 +104,7 @@ async function cacheFirst(request, cacheName) {
 async function offlineFallback(request) {
   if (request.mode === 'navigate') {
     const shell = await caches.open(SHELL);
-    const page = await shell.match('./studio.html');
+    const page = await shell.match('./index.html');
     if (page) return page;
   }
   return Response.error();
