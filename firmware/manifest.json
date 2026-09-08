@@ -1,6 +1,6 @@
 {
   "name": "Fragments Badge Studio",
-  "version": "2026.09.07-studio1",
+  "version": "v1.0.0",
   "new_install_prompt_erase": true,
   "new_install_improv_wait_time": 0,
   "builds": [

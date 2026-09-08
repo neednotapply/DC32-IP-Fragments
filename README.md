@@ -11,7 +11,8 @@ The original conference sketch is preserved unchanged as `ConferenceCode_v1`.
 |---|---|
 | `DC32_Fragments.ino` | Firmware. 13 animations, persistent output settings, USB serial control. |
 | `index.html` | Browser simulator, live badge control, and firmware installer. |
-| `firmware/` | Pre-built images and the browser installer manifest. |
+| `firmware/` | The browser installer manifest. Images are built by CI, not committed. |
+| `.github/workflows/` | Firmware release build, and the Pages deploy that ships it. |
 | `manifest.webmanifest`, `sw.js` | Web app manifest and offline service worker. |
 | `assets/` | Badge mark, favicon and installable app icons. |
 | `tests/button-gestures.cjs` | Host-side tests of the firmware button handler. |
@@ -82,7 +83,38 @@ desktop only — installing it on a phone gets the simulator, not the flasher.
 The one gap: ESP Web Tools loads some of itself lazily from unpkg, so the very
 first flash has to happen online. After that it is cached with the rest.
 
-To refresh the images after changing the firmware (using ESP32 core 3.3.11):
+### Cutting a release
+
+Firmware binaries are not committed. Tag a commit and CI builds them, attaches
+them to the release, then redeploys the site so the hosted studio flashes them:
+
+```bash
+git tag v1.0.1 && git push origin v1.0.1
+```
+
+`.github/workflows/release.yml` compiles against ESP32 core 3.3.11 and uploads
+the four flash parts, the merged single-image build, and `SHA256SUMS.txt`.
+
+The site does not go looking for the newest release. It ships whichever one
+`version` in `firmware/manifest.json` names, so moving the studio to new
+firmware is a one-line edit and a push:
+
+```json
+"version": "v1.0.1",
+```
+
+`.github/workflows/pages.yml` reads that field, pulls those images out of the
+release, and deploys them alongside the page. They have to be served from the
+site itself rather than linked from the release: GitHub sends no
+`Access-Control-Allow-Origin` header on release downloads, so a browser cannot
+read one cross-origin and ESP Web Tools could never fetch it. Serving them
+same-origin is also what lets the service worker precache them, which is what
+makes flashing work with no network.
+
+### Building locally
+
+The images are gitignored, not forbidden — build them whenever you like
+(using ESP32 core 3.3.11):
 
 ```bash
 arduino-cli compile --fqbn esp32:esp32:esp32 --output-dir /tmp/fw .
@@ -96,6 +128,9 @@ esptool --chip esp32 merge-bin -o firmware/fragments-esp32.bin \
   0xe000  firmware/boot_app0.bin \
   0x10000 firmware/application.bin
 ```
+
+Dropping them in `firmware/` like this lets a local `index.html` flash your own
+build; git ignores them.
 
 Merge only the used region as above — `arduino-cli`'s own `.merged.bin` is padded
 to the full 4 MB flash size, which is eleven times larger for no benefit.

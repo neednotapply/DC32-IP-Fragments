@@ -16,5 +16,8 @@ __pycache__/
 .DS_Store
 Thumbs.db
 
-# firmware/ is tracked deliberately: the pre-built image is what the hosted
-# Badge Studio flashes, so it has to be fetchable from GitHub Pages.
+# Built firmware is never committed. release.yml builds it and attaches it to
+# the release; pages.yml pulls those images back in when it deploys the site, so
+# the hosted Badge Studio still serves them same-origin. Build locally as much
+# as you like - the results just stay out of git.
+firmware/*.bin

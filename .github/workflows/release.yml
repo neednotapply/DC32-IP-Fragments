@@ -1,0 +1,136 @@
+# Builds the firmware and publishes it as release assets.
+#
+# Nothing built here is ever committed. The repository carries source only; the
+# images live on the release, and the site picks them up at deploy time (see
+# pages.yml). Tag a commit to cut a release:
+#
+#     git tag v1.0.0 && git push origin v1.0.0
+
+name: Release firmware
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Tag to build and release (must already exist)'
+        required: true
+
+permissions:
+  contents: write
+
+env:
+  FQBN: esp32:esp32:esp32
+  # The README pins this: the images a badge is flashed with have to come from
+  # the core they were tested against.
+  ESP32_CORE: 3.3.11
+  BOARD_URL: https://espressif.github.io/arduino-esp32/package_esp32_index.json
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.inputs.tag || github.ref }}
+
+      - name: Install arduino-cli
+        run: |
+          mkdir -p "$HOME/.local/bin"
+          curl -fsSL https://raw.githubusercontent.com/arduino/arduino-cli/master/install.sh \
+            | BINDIR="$HOME/.local/bin" sh
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+
+      - name: Install ESP32 core ${{ env.ESP32_CORE }} and libraries
+        run: |
+          arduino-cli core update-index --additional-urls "$BOARD_URL"
+          arduino-cli core install "esp32:esp32@${ESP32_CORE}" --additional-urls "$BOARD_URL"
+          arduino-cli lib install "Adafruit NeoPixel"
+          arduino-cli version && arduino-cli core list
+
+      - name: Locate esptool
+        run: |
+          set -euo pipefail
+          # The ESP32 core ships its own esptool. Using that one keeps the merge
+          # in step with the core the images were built against, rather than
+          # whatever version pip happens to resolve today.
+          ESPTOOL=$(find "$HOME/.arduino15/packages/esp32/tools/esptool_py" \
+                      -maxdepth 2 -name esptool -type f 2>/dev/null | head -1)
+          if [ -z "$ESPTOOL" ]; then
+            echo "Core shipped no esptool; falling back to pip."
+            pip install --user esptool
+            ESPTOOL=esptool
+          fi
+          echo "ESPTOOL=$ESPTOOL" >> "$GITHUB_ENV"
+          "$ESPTOOL" version
+
+      # arduino-cli requires the sketch folder to be named after the .ino, which
+      # is why the README tells you to clone into DC32_Fragments. The checkout is
+      # named after the repository, so stage the sketch under the name it needs.
+      - name: Stage the sketch
+        run: |
+          mkdir -p build/sketch/DC32_Fragments
+          cp DC32_Fragments.ino build/sketch/DC32_Fragments/
+
+      - name: Compile
+        run: |
+          arduino-cli compile \
+            --fqbn "$FQBN" \
+            --output-dir build/out \
+            build/sketch/DC32_Fragments
+
+      - name: Collect the four flash parts
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          cp build/out/DC32_Fragments.ino.bootloader.bin dist/bootloader.bin
+          cp build/out/DC32_Fragments.ino.partitions.bin dist/partitions.bin
+          cp build/out/DC32_Fragments.ino.bin            dist/application.bin
+          cp "$HOME/.arduino15/packages/esp32/hardware/esp32/${ESP32_CORE}/tools/partitions/boot_app0.bin" \
+             dist/boot_app0.bin
+
+      # Merge only the used region. arduino-cli's own .merged.bin is padded to
+      # the full 4 MB flash, eleven times larger for no benefit. This image is
+      # for a fresh install over USB: writing it at zero also clears the NVS gap
+      # at 0x9000..0xdfff, which is where badge settings live.
+      - name: Merge a single-image build for local flashing
+        run: |
+          set -euo pipefail
+          "$ESPTOOL" --chip esp32 merge-bin -o dist/fragments-esp32.bin \
+            0x1000  dist/bootloader.bin \
+            0x8000  dist/partitions.bin \
+            0xe000  dist/boot_app0.bin \
+            0x10000 dist/application.bin
+
+      - name: Verify every part is present and non-empty
+        run: |
+          set -euo pipefail
+          for f in bootloader.bin partitions.bin boot_app0.bin application.bin fragments-esp32.bin; do
+            test -s "dist/$f" || { echo "::error::dist/$f missing or empty"; exit 1; }
+          done
+          (cd dist && sha256sum *.bin | tee SHA256SUMS.txt)
+          ls -l dist
+
+      - name: Publish the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.event.inputs.tag || github.ref_name }}
+        run: |
+          set -euo pipefail
+          # Built with printf rather than an inline multi-line string: a bare
+          # line at column 0 would close this YAML block scalar.
+          printf '%s\n' \
+            "ESP32 images built from \`$TAG\` with ESP32 core ${ESP32_CORE}." \
+            "" \
+            "\`fragments-esp32.bin\` is the single merged image, for flashing over USB with esptool." \
+            "" \
+            "The four separate parts are what Badge Studio writes. They leave the NVS region at" \
+            "\`0x9000..0xdfff\` alone, so flashing an update keeps your saved settings." \
+            "" \
+            "Checksums are in \`SHA256SUMS.txt\`." > notes.md
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release upload "$TAG" dist/* --clobber
+          else
+            gh release create "$TAG" dist/* --title "$TAG" --notes-file notes.md
+          fi

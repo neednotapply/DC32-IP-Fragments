@@ -1,0 +1,101 @@
+# Publishes Badge Studio to GitHub Pages.
+#
+# The firmware images are not in this repository. They are built by release.yml,
+# published as release assets, and pulled back in here at deploy time. That is
+# not a detail of taste: a browser cannot read a GitHub release asset, because
+# release downloads carry no Access-Control-Allow-Origin header, so esp-web-tools
+# could never fetch one cross-origin. Baking them into the deployed site keeps
+# them same-origin, which is also what lets the service worker precache them for
+# flashing with no network.
+#
+# Which release ships is pinned by "version" in firmware/manifest.json. Cut a
+# release, bump that one field, push: the site moves to the new firmware.
+
+name: Deploy Badge Studio
+
+on:
+  push:
+    branches: [main]
+  release:
+    types: [published]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# Never let two deploys race; queue instead of cancelling, so a release deploy
+# is not dropped by a docs push landing behind it.
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Read the pinned firmware release
+        id: pin
+        run: |
+          set -euo pipefail
+          TAG=$(python3 -c "import json;print(json.load(open('firmware/manifest.json'))['version'])")
+          test -n "$TAG" || { echo "::error::firmware/manifest.json has no version"; exit 1; }
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "Site will ship firmware from release $TAG"
+
+      - name: Fetch the firmware images from that release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.pin.outputs.tag }}
+        run: |
+          set -euo pipefail
+          if ! gh release download "$TAG" \
+               --pattern 'bootloader.bin' \
+               --pattern 'partitions.bin' \
+               --pattern 'boot_app0.bin' \
+               --pattern 'application.bin' \
+               --dir firmware --clobber; then
+            echo "::error::Could not download firmware from release '$TAG'."
+            echo "::error::Tag it and let release.yml build it, or correct the version in firmware/manifest.json."
+            exit 1
+          fi
+          # The flasher writes these four. A missing one would deploy a site
+          # whose Flash button 404s, so fail here instead.
+          for f in bootloader.bin partitions.bin boot_app0.bin application.bin; do
+            test -s "firmware/$f" || { echo "::error::firmware/$f missing or empty"; exit 1; }
+          done
+          ls -l firmware
+
+      - name: Assemble the site
+        run: |
+          set -euo pipefail
+          mkdir -p _site
+          # Ship the site, not the workshop: no VCS metadata, no CI config, no
+          # firmware source, no host-side tests.
+          rsync -a ./ _site/ \
+            --exclude '.git' \
+            --exclude '.github' \
+            --exclude '_site' \
+            --exclude 'tests' \
+            --exclude 'build' \
+            --exclude '*.ino' \
+            --exclude '*.stl' \
+            --exclude 'ConferenceCode_v1'
+          test -s _site/index.html
+          test -s _site/manifest.webmanifest
+          test -s _site/sw.js
+          test -s _site/firmware/application.bin
+          du -sh _site
+
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+      - id: deployment
+        uses: actions/deploy-pages@v4
