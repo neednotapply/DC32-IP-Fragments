@@ -5,6 +5,8 @@ Welcome to the Illuminati Party® badge 'Fragments' for 2024 (DC32).
 This fork adds rewritten animation firmware and Badge Studio for browser control.
 The original conference sketch is preserved unchanged as `ConferenceCode_v1`.
 
+[![Badge Studio playing Rainbow, with animation selection, output controls, connection and flashing controls, and telemetry](docs/images/badge-studio-rainbow.png)](https://neednotapply.github.io/DC32-IP-Fragments/)
+
 | | |
 |---|---|
 | `DC32_Fragments_NNA.ino` | Firmware. 13 animations, persistent output settings, USB serial control. |
