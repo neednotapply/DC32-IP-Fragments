@@ -99,6 +99,7 @@
 
 #define START_MODE         0    // animation to boot into
 #define START_BRIGHT      45    // where brightness sits at power-on
+#define DEFAULT_SPEED     100   // percent; global default, with per-animation pacing below
 #define AUTO_CYCLE_MS      0    // >0 advances animations by itself, e.g. 30000
 
 // Brightness is continuous rather than a handful of steps: holding the button
@@ -117,7 +118,7 @@
 #define POWER_LIMIT_MA   700
 
 // ---------------------------------------------------------------------------
-// The badge's house green
+// The badge's default green
 //
 // Greenback green -- the shade the Great Seal and the back of the dollar are
 // printed in -- rather than the neon a WS2812 hands you if you simply ask for
@@ -185,7 +186,7 @@ void updateInk() {
 // if you have a board that really is wired active-low.
 #define BUTTON_ACTIVE_HIGH 1
 
-#define COMBO_MS        1200    // maximum release-to-press gap in the long-press combo
+#define MENU_IDLE_MS    3000    // adjustment menu stays open after releasing the button
 #define BTN_DEBOUNCE_MS   25
 #define BTN_LONG_MS      700
 
@@ -203,7 +204,7 @@ uint8_t  scratch[PIXEL_COUNT];      // per-animation scratch (candle, glitch, ..
 
 uint32_t gNow      = 0;             // millis() at the top of this frame
 uint32_t gAnimNow  = 0;             // scaled animation time; buttons/NVS use gNow
-uint16_t gSpeed    = 100;           // percent, 10..300
+uint16_t gSpeed    = DEFAULT_SPEED; // percent, 10..300
 bool     gPlaying  = true;
 uint32_t gFrame    = 0;             // frames since the current animation started
 uint8_t  gMode     = START_MODE;
@@ -522,7 +523,7 @@ void buildGeometry() {
 //
 // Everything bound for the strip gets lifted to a floor bright enough to swamp
 // it. A tint already in place is scaled up with its hue intact; an eye left
-// completely dark takes the house green instead of the power LED's blue. Raise
+// completely dark takes the default green instead of the power LED's blue. Raise
 // EYE_FLOOR if blue still shows through -- it is in framebuffer units, so it
 // dims along with everything else as you ramp the badge down.
 #define EYE_FLOOR 95
@@ -781,8 +782,7 @@ void animCollide() {
   fbSet(EYE_C, e, e, e);
 }
 
-// Hue mapped straight onto perimeter position, rotating. The aux LEDs pick up
-// the hue of the nearest corner so the inside of the badge tracks the outside.
+// Hue mapped onto the perimeter, with each eye LED sampling the nearest outline LED.
 void animRainbow() {
   uint16_t base = (uint16_t)(gAnimNow * 14);
 
@@ -798,11 +798,18 @@ void animRainbow() {
       fbSetHSV((uint8_t)(f * FRAG_LEN + 16 + k),
                base - (uint16_t)(f * 16 + 12 + k) * (65536UL / PERIM_COUNT), 255, 150);
 
-  fbSetHSV(EYE_C, base + 32768, 40, 220);
-  fbSetHSV(EYE_L, base,          255, 170);
-  fbSetHSV(EYE_R, base + 21845,  255, 170);
-  fbSetHSV(TOP_L, base + 32768,  105, 195);
-  fbSetHSV(TOP_R, base + 32768,  105, 195);
+  for (uint8_t i = GRB_FIRST; i < PIXEL_COUNT; i++) {
+    uint8_t nearest = 0;
+    uint32_t best = UINT32_MAX;
+    for (uint8_t p = 0; p < PERIM_COUNT; p++) {
+      int32_t dx = pxX(i) - pxX(PERIM[p]), dy = pxY(i) - pxY(PERIM[p]);
+      uint32_t distance = dx * dx + 3 * dy * dy;  // y units span sqrt(3) times x units
+      if (distance < best) { best = distance; nearest = p; }
+    }
+    uint8_t sat = i == EYE_C ? 40 : (i <= EYE_L ? 255 : 105);
+    uint8_t val = i == EYE_C ? 220 : (i <= EYE_L ? 170 : 195);
+    fbSetHSV(i, base - (uint16_t)nearest * (65536UL / PERIM_COUNT), sat, val);
+  }
 }
 
 // A pulse leaves each corner in both directions at once. The three pairs meet
@@ -850,17 +857,18 @@ void animCorners() {
 
 // --- Eye-driven ------------------------------------------------------------
 
-// The eye sweeps left and right while a horizontal line scans the triangle.
-// Deliberately sparse -- this one is meant to look like it is watching you.
-void animScanner() {
-  uint8_t look = sin8((uint8_t)(gAnimNow / 14));         // 0 = hard left, 255 = hard right
-  uint8_t line = sin8((uint8_t)(gAnimNow / 9));          // scan height, 0..255
+// A horizontal beam sweeps vertically across the outline and all five eye LEDs.
+uint8_t scannerBeam(uint8_t i, int16_t lineY) {
+  int16_t d = abs(pxY(i) - lineY);
+  return d >= 14 ? 0 : (uint8_t)(255 - d * 18);
+}
 
-  int16_t lineY = (int16_t)((uint16_t)line * 100 / 255);
+void animScanner() {
+  uint8_t line = sin8((uint8_t)(gAnimNow / 9));          // scan height, 0..255
+  int16_t lineY = (int16_t)((uint16_t)line * 150 / 255) - 25;
 
   for (uint8_t i = 0; i < RING_COUNT; i++) {
-    int16_t d = abs((int16_t)ringY[i] - lineY);
-    uint8_t v = d >= 14 ? 0 : (uint8_t)(255 - d * 18);
+    uint8_t v = scannerBeam(i, lineY);
     fbTint(i, inkR, inkG, inkB, v);
     fbAddTint(i, inkR, inkG, inkB, 22);              // faint standby ember
   }
@@ -869,14 +877,12 @@ void animScanner() {
   fbAddTint(CORNER_BL,  inkR, inkG, inkB, 45);
   fbAddTint(CORNER_TOP, inkR, inkG, inkB, 45);
 
-  fbTint(EYE_C, inkR, inkG, inkB, 255);
-  fbTint(EYE_L, inkR, inkG, inkB, (uint8_t)(255 - look));
-  fbTint(EYE_R, inkR, inkG, inkB, look);
-  // The white catches the scan as the line sweeps past the eye's own height.
-  int16_t dEye = abs((int16_t)EYE_CY - lineY);
-  uint8_t wash = dEye >= 22 ? 18 : (uint8_t)(18 + (22 - dEye) * 10);
-  fbTint(TOP_L, inkR, inkG, inkB, wash);
-  fbTint(TOP_R, inkR, inkG, inkB, wash);
+  for (uint8_t i = GRB_FIRST; i < PIXEL_COUNT; i++) {
+    uint8_t beam = scannerBeam(i, lineY);
+    fbTint(i, inkR, inkG, inkB, EYE_FLOOR + scale8(beam, 255 - EYE_FLOOR));
+    uint8_t glint = scale8(beam, 60);
+    fbAdd(i, glint, glint, glint);
+  }
 }
 
 // --- The fragments themselves ----------------------------------------------
@@ -885,8 +891,10 @@ void animScanner() {
 // eye graphic is drawn as an aperture, so: a shutter. Each fragment's blade
 // sweeps out from its corner until the three meet and the eye goes dark.
 void animAperture() {
+  static uint32_t started;
+  if (gFrame == 0) started = gAnimNow;
   const uint16_t CYCLE = 4600;
-  uint16_t t = (uint16_t)(gAnimNow % CYCLE);
+  uint16_t t = (uint16_t)((gAnimNow - started) % CYCLE);
 
   uint8_t open;                                      // 0 stopped all the way down, 255 wide
   uint8_t flash = 0;
@@ -902,7 +910,7 @@ void animAperture() {
   else if (t < 3400) open = (uint8_t)(((t - 1800) * 255UL) / 1600);      // winds back open
   else               open = 255;
 
-  uint8_t reach = (uint8_t)(2 + scale8((uint8_t)(255 - open), 18));      // 2..20 LEDs of blade
+  uint8_t reach = (uint8_t)(1 + scale8((uint8_t)(255 - open), FRAG_LEN - 1)); // 1..20 LEDs
 
   fbFill(0, RING_COUNT, 0, 0, 0);
   for (uint8_t f = 0; f < FRAG_COUNT; f++) {
@@ -1025,89 +1033,61 @@ void animRadar() {
 
 // --- Glitch / hacker -------------------------------------------------------
 
-// Droplets spawn near the apex and run down the two slanted edges, splashing
-// when they reach a bottom corner. scratch[] doubles as the trail buffer.
-#define DROPS        10   // drops in flight
+// Drops follow real LEDs in a column, strictly from higher to lower positions.
+#define DROPS         6   // drops in flight
 #define DROP_COL      6   // half-width of a drop's column, in x units
-#define DROP_STRIKE  56   // how close the head has to pass to strike, 1/16 height
-#define TRAIL_DECAY 232   // how fast a struck LED fades again
-#define GLYPH_FLOOR  70   // the wall is never fully dark; see the gamma note
-void animMatrix() {
-  // The badge is a wall, but a wall with almost no vertical density: on the
-  // slanted edges every LED sits at its own x, so a column holds about three
-  // LEDs with fifty height-units of nothing between them. Drawing a trail
-  // geometrically -- lighting whatever happens to lie just above the head --
-  // therefore lights almost nothing, and a drop reads as a lone point crossing
-  // empty board.
-  //
-  // So the trail lives on the LEDs instead of in the air. A drop STRIKES an LED
-  // as it passes and that LED decays on its own afterwards, which makes a column
-  // of three read as three flashes falling in sequence. The same decaying buffer
-  // carries the dim glyph field between drops, so the two are one mechanism.
-  static int16_t dropX[DROPS], dropY[DROPS];
-  static uint8_t dropSpd[DROPS];
-  static bool    dropLive[DROPS];
+#define TRAIL_DECAY 244   // a struck LED fades to black over roughly two seconds
+#define RAIN_HEAD_LEVEL 220 // white highlight is bright, but not a full-power flare
+uint8_t rainNext(uint8_t from, int16_t column) {
+  int16_t below = from < RING_COUNT ? pxY(from) : 101;
+  int16_t highest = -101;
+  uint8_t next = 255;
+  for (uint8_t i = 0; i < RING_COUNT; i++) {
+    if (abs(pxX(i) - column) > DROP_COL) continue;
+    int16_t y = pxY(i);
+    if (y < below && y > highest) { highest = y; next = i; }
+  }
+  return next;
+}
 
+void rainPixel(uint8_t i) {
+  uint8_t level = scratch[i];
+  uint8_t white = scale8(level, level);
+  fbSet(i, scale8(qadd8(inkR, scale8(255 - inkR, white)), level),
+           scale8(qadd8(inkG, scale8(255 - inkG, white)), level),
+           scale8(qadd8(inkB, scale8(255 - inkB, white)), level));
+}
+
+void animMatrix() {
+  static int16_t dropX[DROPS];
+  static uint8_t dropHead[DROPS], dropSpd[DROPS], dropTick[DROPS];
   if (gFrame == 0) {
     fbClear();
     memset(scratch, 0, sizeof(scratch));
-    for (uint8_t d = 0; d < DROPS; d++) dropLive[d] = false;
+    memset(dropHead, 255, sizeof(dropHead));
   }
 
-  for (uint8_t i = 0; i < RING_COUNT; i++)             // trail and glyphs both fade
+  for (uint8_t i = 0; i < RING_COUNT; i++)
     scratch[i] = scale8(scratch[i], TRAIL_DECAY);
 
-  for (uint8_t i = 0; i < RING_COUNT; i++)             // the field between drops
-    if (random(100) < 5) {
-      uint8_t g = (uint8_t)random(60, 140);
-      if (g > scratch[i]) scratch[i] = g;
-    }
-
   for (uint8_t d = 0; d < DROPS; d++) {
-    if (!dropLive[d]) {
+    uint8_t previous = dropHead[d];
+    if (dropHead[d] == 255) {
       if (random(100) < 25) {
-        // Take the column from an LED that actually exists. Picking x at random
-        // drops a third of them down stripes of bare board where nothing can be
-        // struck, and weighting by LED naturally favours the busier columns.
         uint8_t seed = (uint8_t)random(RING_COUNT);
-        dropX[d]    = pxX(seed);
-        dropY[d]    = (int16_t)((100 - (dropX[d] < 0 ? -dropX[d] : dropX[d])) * 16 + 60);
-        dropSpd[d]  = (uint8_t)random(18, 40);
-        dropLive[d] = true;
+        dropX[d] = pxX(seed);
+        dropHead[d] = rainNext(255, dropX[d]);
+        dropSpd[d] = (uint8_t)random(3, 8);
+        dropTick[d] = 0;
       }
-      continue;
+    } else if (++dropTick[d] >= dropSpd[d]) {
+      dropHead[d] = rainNext(dropHead[d], dropX[d]);
+      dropTick[d] = 0;
     }
-
-    dropY[d] = (int16_t)(dropY[d] - (int16_t)dropSpd[d]);
-    if (dropY[d] < -DROP_STRIKE) { dropLive[d] = false; continue; }
-
-    for (uint8_t i = 0; i < RING_COUNT; i++) {         // strike what it falls past
-      int16_t dx = (int16_t)pxX(i) - dropX[d];
-      if (dx < 0) dx = (int16_t)(-dx);
-      if (dx > DROP_COL) continue;
-      int16_t dy = (int16_t)((int16_t)pxY(i) * 16 - dropY[d]);
-      if (dy < 0) dy = (int16_t)(-dy);
-      if (dy <= DROP_STRIKE) scratch[i] = 255;
-    }
+    if (dropHead[d] != 255 && dropHead[d] != previous) scratch[dropHead[d]] = RAIN_HEAD_LEVEL;
   }
 
-  for (uint8_t i = 0; i < RING_COUNT; i++)             // lay the ink down
-    fbTint(i, inkR, inkG, inkB,
-           (uint8_t)(GLYPH_FLOOR + scale8(scratch[i], 255 - GLYPH_FLOOR)));
-
-  for (uint8_t d = 0; d < DROPS; d++) {                // heads run pale ahead of the trail
-    if (!dropLive[d]) continue;
-    for (uint8_t i = 0; i < RING_COUNT; i++) {
-      int16_t dx = (int16_t)pxX(i) - dropX[d];
-      if (dx < 0) dx = (int16_t)(-dx);
-      if (dx > DROP_COL) continue;
-      int16_t dy = (int16_t)((int16_t)pxY(i) * 16 - dropY[d]);
-      if (dy < 0) dy = (int16_t)(-dy);
-      if (dy > DROP_STRIKE) continue;
-      uint8_t w = (uint8_t)(255 - ((int32_t)dy * 255) / DROP_STRIKE);
-      fbAdd(i, scale8(w, 150), scale8(w, 60), scale8(w, 150));
-    }
-  }
+  for (uint8_t i = 0; i < RING_COUNT; i++) rainPixel(i);
 
   uint8_t cursor = 32 + scale8(sin8((uint8_t)(gAnimNow / 8)), 200);
   fbTint(EYE_C, inkR, inkG, inkB, cursor);
@@ -1121,12 +1101,14 @@ void animMatrix() {
 // Power-on self test, on a loop: trace the outline, lock the corners, open the
 // eye, then three confirmation flashes and a short hold.
 void animBoot() {
+  static uint32_t started;
+  if (gFrame == 0) started = gAnimNow;
   // Outline only. The twelve tail LEDs stay dark for the whole sequence, so the
   // badge wakes up drawing its own silhouette rather than filling in solid --
   // every loop here walks PERIM rather than the full strand, and floorEye()
   // does not reach the tails, so nothing lifts them off zero.
   const uint16_t CYCLE = 5600;
-  uint16_t t = (uint16_t)(gAnimNow % CYCLE);
+  uint16_t t = (uint16_t)((gAnimNow - started) % CYCLE);
 
   fbClear();
 
@@ -1135,13 +1117,13 @@ void animBoot() {
     for (uint8_t r = 0; r <= lit && r < PERIM_COUNT; r++) {
       uint8_t age = (uint8_t)(lit - r);
       uint8_t v   = age > 8 ? 45 : (uint8_t)(255 - age * 26);
-      fbTint(PERIM[r], inkR, inkG, inkB, v);
+      fbTint(PERIM[(perimPos[CORNER_TOP] + r) % PERIM_COUNT], inkR, inkG, inkB, v);
     }
 
   } else if (t < 2600) {                             // corners lock in, one by one
     for (uint8_t r = 0; r < PERIM_COUNT; r++) fbTint(PERIM[r], inkR, inkG, inkB, 70);
     uint16_t s = t - 1600;
-    const uint8_t corner[3] = { CORNER_BR, CORNER_BL, CORNER_TOP };
+    const uint8_t corner[3] = { CORNER_TOP, CORNER_BR, CORNER_BL };
     for (uint8_t c = 0; c < 3; c++) {
       if (s > (uint16_t)c * 280) {
         uint16_t age = s - c * 280;
@@ -1199,7 +1181,7 @@ struct Anim {
 };
 
 const Anim ANIMS[] = {
-  // Everything down to Matrix Rain follows the house colour. The four after it
+  // Everything down to Matrix Rain follows the custom color. The four after it
   // are multi-coloured by design and ignore the setting, so they are grouped at
   // the end rather than scattered through the list.
   { animBoot,         25, "Boot Sequence" },   // what the badge wakes up to
@@ -1210,11 +1192,11 @@ const Anim ANIMS[] = {
   { animScanner,      22, "Scanner"       },
   { animAperture,     22, "Aperture"      },
   { animChain,        25, "Fragment Chain"},
-  { animMatrix,       30, "Matrix Rain"   },
-  { animDrift,        30, "Drift"         },   // multi-coloured from here on
+  { animMatrix,       35, "Matrix Rain"   }, // a little calmer without slowing other animations
+  { animRainbow,      22, "Rainbow"       },   // multi-coloured from here on
+  { animDrift,        30, "Drift"         },
   { animPlasma,       28, "Plasma"        },
   { animCollide,      18, "Collide"       },
-  { animRainbow,      22, "Rainbow"       },
 };
 #define ANIM_COUNT (sizeof(ANIMS) / sizeof(ANIMS[0]))
 
@@ -1232,6 +1214,15 @@ const Anim ANIMS[] = {
  */
 #define SETTINGS_SAVE_MS 2500
 
+uint8_t storedMode(uint8_t mode, uint16_t version) {
+  // Version 1 placed Rainbow last. Keep the selected animation when upgrading.
+  if (version < 2) {
+    if (mode == 12) return 9;
+    if (mode >= 9 && mode <= 11) return mode + 1;
+  }
+  return mode;
+}
+
 Preferences prefs;
 bool     gDirty   = false;
 bool     gOutputDirty = false;
@@ -1246,27 +1237,30 @@ void settingsLoad() {
   gMode   = prefs.getUChar ("mode",   START_MODE);
   gBright = prefs.getUChar ("bright", START_BRIGHT);
   gHue    = prefs.getUShort("hue",    DEFAULT_HUE);
+  uint16_t version = 1;
   SavedSettings saved = {};
   if (prefs.getBytesLength("settings") == sizeof(saved) &&
       prefs.getBytes("settings", &saved, sizeof(saved)) == sizeof(saved) &&
-      saved.version == 1 && saved.playing <= 1) {
+      (saved.version == 1 || saved.version == 2) && saved.playing <= 1) {
     gMode = saved.mode; gBright = saved.bright; gHue = saved.hue;
     gSpeed = saved.speed; gPlaying = saved.playing;
+    version = saved.version;
   }
   prefs.end();
+  gMode = storedMode(gMode, version);
 
   // Anything out of range means a corrupt or stale record -- an animation count
   // that shrank, say. Fall back rather than index off the end of the table.
   if (gMode >= ANIM_COUNT)                          gMode   = START_MODE;
   if (gBright < BRIGHT_MIN || gBright > BRIGHT_MAX) gBright = START_BRIGHT;
-  if (gSpeed < 10 || gSpeed > 300) gSpeed = 100;
+  if (gSpeed < 10 || gSpeed > 300) gSpeed = DEFAULT_SPEED;
 }
 
 inline void settingsTouch() { gDirty = true; gDirtyAt = gNow; gOutputDirty = true; }
 
 void settingsSave() {
   if (!gDirty) return;
-  SavedSettings saved = {1, gHue, gSpeed, gMode, gBright, (uint8_t)gPlaying, 0};
+  SavedSettings saved = {2, gHue, gSpeed, gMode, gBright, (uint8_t)gPlaying, 0};
   bool ok = prefs.begin("fragments", false);
   if (ok) ok = prefs.putBytes("settings", &saved, sizeof(saved)) == sizeof(saved);
   prefs.end();
@@ -1289,9 +1283,23 @@ void settingsService() {
 enum Feedback { FB_NONE, FB_MODE, FB_LEVEL };
 Feedback gFeedback   = FB_NONE;
 uint32_t gFeedbackTo = 0;
+enum ButtonMenu { MENU_NONE, MENU_BRIGHTNESS, MENU_COLOUR };
+ButtonMenu gButtonMenu = MENU_NONE;
+
+void keepMenuOpen() {
+  gFeedback = FB_LEVEL;
+  gFeedbackTo = gNow + MENU_IDLE_MS;
+}
+
+void leaveMenu() {
+  gButtonMenu = MENU_NONE;
+  gFeedback = FB_NONE;
+  gFrame = 0;
+  fbClear();
+}
 
 // While you are navigating -- stepping animations, ramping brightness, ramping
-// colour -- the whole badge sits lit in the house ink at the set brightness, so
+// colour -- the whole badge sits lit in the custom color at the set brightness, so
 // a glance tells you what it is actually configured to. The old readout drew a
 // few markers on a dark board, which hid the two things you were adjusting.
 //
@@ -1320,6 +1328,7 @@ void showFeedback() {
  * ===========================================================================
  */
 void setMode(uint8_t m) {
+  gButtonMenu = MENU_NONE;
   gMode  = (uint8_t)(m % ANIM_COUNT);
   gFrame = 0;
   fbClear();
@@ -1341,8 +1350,7 @@ void rampHue() {
   gHue = (uint16_t)(gHue + HUE_STEP);
   updateInk();
   settingsTouch();
-  gFeedback   = FB_LEVEL;                          // hold the badge on the new colour
-  gFeedbackTo = gNow + 400;
+  keepMenuOpen();
 }
 
 void rampBrightness() {
@@ -1355,10 +1363,7 @@ void rampBrightness() {
   gBright = (uint8_t)v;
   settingsTouch();
 
-  // Each step pushes the window out, so the fill holds for the whole hold and
-  // lingers briefly after you let go.
-  gFeedback   = FB_LEVEL;
-  gFeedbackTo = gNow + 400;
+  keepMenuOpen();
 }
 
 /* ===========================================================================
@@ -1376,17 +1381,17 @@ uint32_t btnEdgeAt    = 0;
 uint32_t btnDownAt    = 0;
 uint32_t btnNextRep   = 0;
 bool     btnLongFired = false;
-bool     btnCombo      = false;     // third hold, after two completed long presses
-uint8_t  btnLongCount  = 0;
-uint32_t btnReleasedAt = 0;
-uint8_t  btnStartBright = START_BRIGHT;
-int8_t   btnStartBrightDir = 1;
 
 void serviceButton() {
+  if (gButtonMenu != MENU_NONE && !btnRaw && !btnStable &&
+      (int32_t)(gNow - gFeedbackTo) >= 0) leaveMenu();
+
   // Normalised to pressed / not pressed at the top, so nothing below has to
   // care which way round the hardware is.
   bool raw = (digitalRead(BUTTON_PIN) == (BUTTON_ACTIVE_HIGH ? HIGH : LOW));
   if (raw != btnRaw) { btnRaw = raw; btnEdgeAt = gNow; }
+  // Preserve the menu even if debounce or the long-press threshold crosses its deadline.
+  if (gButtonMenu != MENU_NONE && (btnRaw || btnStable)) keepMenuOpen();
 
   if (raw != btnStable && (gNow - btnEdgeAt) >= BTN_DEBOUNCE_MS) {
     btnStable = raw;
@@ -1394,32 +1399,25 @@ void serviceButton() {
       if (!gPlaying) { gPlaying = true; settingsTouch(); }
       btnDownAt    = gNow;
       btnLongFired = false;
-      if (gNow - btnReleasedAt >= COMBO_MS) btnLongCount = 0;
-      if (btnLongCount == 0) { btnStartBright = gBright; btnStartBrightDir = gBrightDir; }
-      btnCombo = btnLongCount == 2;
     } else if (!btnLongFired) {
-      setMode((uint8_t)(gMode + 1));                 // short press
-      btnLongCount = 0;
+      if (gButtonMenu != MENU_NONE) leaveMenu();
+      else setMode((uint8_t)(gMode + 1));
     } else {
       // Report once on release rather than 25 times a second during the ramp.
-      if (btnCombo) Serial.printf("hue %u\n", gHue);
-      else          Serial.printf("brightness %u/%u\n", gBright, BRIGHT_MAX);
-      btnLongCount = btnCombo ? 0 : btnLongCount + 1;
-      btnReleasedAt = gNow;
+      if (gButtonMenu == MENU_COLOUR) Serial.printf("hue %u\n", gHue);
+      else Serial.printf("brightness %u/%u\n", gBright, BRIGHT_MAX);
+      keepMenuOpen();
     }
   }
 
   if (btnStable) {
     if (!btnLongFired && (gNow - btnDownAt) >= BTN_LONG_MS) {
       btnLongFired  = true;
-      if (btnCombo) {
-        // The first two holds were brightness gestures until this one confirmed colour.
-        gBright = btnStartBright; gBrightDir = btnStartBrightDir;
-      }
-      if (btnCombo) rampHue(); else rampBrightness();
+      gButtonMenu = gButtonMenu == MENU_BRIGHTNESS ? MENU_COLOUR : MENU_BRIGHTNESS;
+      if (gButtonMenu == MENU_COLOUR) rampHue(); else rampBrightness();
       btnNextRep = gNow + BRIGHT_RAMP_MS;
     } else if (btnLongFired && (int32_t)(gNow - btnNextRep) >= 0) {
-      if (btnCombo) rampHue(); else rampBrightness();
+      if (gButtonMenu == MENU_COLOUR) rampHue(); else rampBrightness();
       btnNextRep = gNow + BRIGHT_RAMP_MS;
     }
   }
@@ -1436,7 +1434,7 @@ void serviceButton() {
  *  USB lead that powers and flashes it.
  *
  *  The protocol is line-based ASCII, which means it can be driven by hand from
- *  screen or minicom as readily as by the test bench through the browser's Web
+ *  screen or minicom as readily as by the Badge Studio through the browser's Web
  *  Serial API:
  *
  *    ?        report state       -> S <mode> <bright> <hue> <speed> <playing> <dirty>
@@ -1605,9 +1603,9 @@ void setup() {
   gDirty = false;                                  // loading is not a change
 
   Serial.printf("\nFragments: %u animations, brightness %u..%u.\n"
-                "  short press        = next animation\n"
+                "  short press        = leave menu, or next animation\n"
                 "  hold               = ramp brightness, turns round at each end\n"
-                "  two long presses, then hold = ramp colour\n",
+                "  next hold in menu  = switch brightness / colour\n",
                 (unsigned)ANIM_COUNT, BRIGHT_MIN, BRIGHT_MAX);
 
   Serial.println("  serial            = ? l n w  m<n> b<n> h<n> s<n> p<0|1> f<0|1>");

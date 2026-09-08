@@ -1,5 +1,4 @@
 # arduino-cli build output. --export-binaries drops ~22 MB of .elf/.map here.
-Fragments_NNA/build/
 build/
 
 # Python
@@ -18,4 +17,4 @@ __pycache__/
 Thumbs.db
 
 # firmware/ is tracked deliberately: the pre-built image is what the hosted
-# test bench flashes, so it has to be fetchable from GitHub Pages.
+# Badge Studio flashes, so it has to be fetchable from GitHub Pages.

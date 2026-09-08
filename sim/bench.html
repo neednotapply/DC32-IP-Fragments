@@ -1,7 +1,7 @@
 <!doctype html>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Fragments Test Bench</title>
+<title>Badge Studio</title>
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <script type="module" src="https://unpkg.com/esp-web-tools@10.1.1/dist/web/install-button.js?module"></script>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@500;600;700&family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500&display=swap">
@@ -39,7 +39,7 @@
     -webkit-font-smoothing: antialiased;
   }
 
-  .bench { max-width: 1240px; margin: 0 auto; padding: 28px 24px 56px; }
+  .studio { max-width: 1240px; margin: 0 auto; padding: 28px 24px 56px; }
 
   /* ---- header ---- */
   header { display: flex; align-items: flex-end; justify-content: space-between;
@@ -196,10 +196,10 @@
   @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
 </style>
 
-<div class="bench">
+<div class="studio">
   <header>
     <div class="brand">
-      <h1>Fragments Test Bench</h1>
+      <h1>Badge Studio</h1>
       <p>DC32 Illuminati Party badge</p>
     </div>
     <div class="hw">
@@ -228,7 +228,7 @@
         </div>
         <div class="transport">
           <button class="ctl" id="playBtn">Pause</button>
-          <button class="ctl" id="badgeBtn" title="Click for next animation; hold for brightness; two long presses, then a third hold for colour">Badge button</button>
+          <button class="ctl" id="badgeBtn" title="Click to leave a menu, otherwise next animation; hold for brightness; hold again within 3 seconds to switch brightness / colour">Badge button</button>
           <button class="ctl" id="serBtn" hidden>Connect badge</button>
           <span class="link" id="serLink" hidden>not linked</span>
           <esp-web-install-button manifest="../firmware/manifest.json">
@@ -258,7 +258,7 @@
             <input type="range" id="spd" min="10" max="300" value="100" step="5">
           </div>
           <div>
-            <label class="row" for="hue">House colour <output id="hueOut">18900</output></label>
+            <label class="row" for="hue">Custom color <output id="hueOut">18900</output></label>
             <input type="range" id="hue" min="0" max="65535" step="1" value="18900">
           </div>
           <label class="toggle"><input type="checkbox" id="idx"> Show LED indices</label>
@@ -297,13 +297,13 @@
   <footer>
     <span>DC32 &middot; Illuminati Party&reg; &ldquo;Fragments&rdquo;</span>
     <span>13 animations &middot; brightness 4&ndash;160</span>
-    <span>Press: next &middot; Hold: brightness &middot; Two long presses, then hold: colour</span>
+    <span>Press: leave menu / next &middot; Hold: brightness &middot; Next hold in menu: brightness / colour</span>
   </footer>
 </div>
 
 <script>
 /* ---------------------------------------------------------------------------
-   A transliteration of Fragments_NNA.ino. Every helper below has the same name
+   A transliteration of DC32_Fragments_NNA.ino. Every helper below has the same name
    and the same integer behaviour as its C++ counterpart, uint8/uint16 wrapping
    included, so what this page shows is what the badge does.
    --------------------------------------------------------------------------- */
@@ -312,9 +312,9 @@
 const N = 65, RING = 60, GRB_FIRST = 60;
 const CORNER_BR = 3, CORNER_BL = 23, CORNER_TOP = 43;
 const EYE_C = 60, EYE_R = 61, EYE_L = 62, TOP_L = 63, TOP_R = 64;   // 61 is the RIGHT one
-const BRIGHT_MIN = 4, BRIGHT_MAX = 160, BRIGHT_RAMP_MS = 40;
+const BRIGHT_MIN = 4, BRIGHT_MAX = 160, BRIGHT_RAMP_MS = 40, DEFAULT_SPEED = 100;
 
-/* The house colour is a selectable hue. INK_SAT is what keeps it greenback and
+/* The custom color is a selectable hue. INK_SAT is what keeps it greenback and
    not neon: authored saturation 131 lands near 0.35:1.00:0.21 at the LED once
    gamma has crushed the minor channels. There is deliberately no paler variant --
    anything desaturated enough to sit between the ink and white just reads white
@@ -334,7 +334,7 @@ function updateInk() {
 }
 function rampHue() {
   gHue = u16(gHue + HUE_STEP); updateInk(); syncHue();
-  gFeedback = 2; gFeedbackTo = now + 400;          // hold the badge on the new colour
+  keepMenuOpen();
 }
 const POWER_LIMIT_MA = 700;
 const TRI_ASPECT = 1.732;
@@ -672,11 +672,17 @@ function animRainbow() {
     for (let k = 0; k < 4; k++)
       fbSetHSV(f * FRAG_LEN + 16 + k,
                u16(base - (f * 16 + 12 + k) * Math.floor(65536 / PERIM_COUNT)), 255, 150);
-  fbSetHSV(EYE_C, u16(base + 32768), 40, 220);
-  fbSetHSV(EYE_L, base, 255, 170);
-  fbSetHSV(EYE_R, u16(base + 21845), 255, 170);
-  fbSetHSV(TOP_L, u16(base + 32768), 105, 195);
-  fbSetHSV(TOP_R, u16(base + 32768), 105, 195);
+  for (let i = GRB_FIRST; i < N; i++) {
+    let nearest = 0, best = Infinity;
+    for (let p = 0; p < PERIM_COUNT; p++) {
+      const dx = pxX(i) - pxX(PERIM[p]), dy = pxY(i) - pxY(PERIM[p]);
+      const distance = dx * dx + 3 * dy * dy;
+      if (distance < best) { best = distance; nearest = p; }
+    }
+    const sat = i === EYE_C ? 40 : (i <= EYE_L ? 255 : 105);
+    const val = i === EYE_C ? 220 : (i <= EYE_L ? 170 : 195);
+    fbSetHSV(i, u16(base - nearest * Math.floor(65536 / PERIM_COUNT)), sat, val);
+  }
 }
 
 function animCorners() {
@@ -708,31 +714,32 @@ function animCorners() {
   fbTint(TOP_R, inkR, inkG, inkB, scale8(e, 195));
 }
 
+function scannerBeam(i, lineY) {
+  const d = Math.abs(pxY(i) - lineY);
+  return d >= 14 ? 0 : 255 - d * 18;
+}
 function animScanner() {
-  const look = sin8(t8(14)), line = sin8(t8(9));
-  const lineY = Math.floor((line * 100) / 255);
+  const line = sin8(t8(9)), lineY = Math.floor((line * 150) / 255) - 25;
   for (let i = 0; i < RING; i++) {
-    const d = Math.abs(ringY[i] - lineY);
-    const v = d >= 14 ? 0 : 255 - d * 18;
+    const v = scannerBeam(i, lineY);
     fbTint(i, inkR, inkG, inkB, v);
     fbAddTint(i, inkR, inkG, inkB, 22);              // faint standby ember
   }
   fbAddTint(CORNER_BR, inkR, inkG, inkB, 45);
   fbAddTint(CORNER_BL, inkR, inkG, inkB, 45);
   fbAddTint(CORNER_TOP, inkR, inkG, inkB, 45);
-  fbTint(EYE_C, inkR, inkG, inkB, 255);
-  fbTint(EYE_L, inkR, inkG, inkB, 255 - look);
-  fbTint(EYE_R, inkR, inkG, inkB, look);
-  // The white catches the scan as the line sweeps past the eye's own height.
-  const dEye = Math.abs(EYE_CY - lineY);
-  const wash = dEye >= 22 ? 18 : 18 + (22 - dEye) * 10;
-  fbTint(TOP_L, inkR, inkG, inkB, wash);
-  fbTint(TOP_R, inkR, inkG, inkB, wash);
+  for (let i = GRB_FIRST; i < N; i++) {
+    const beam = scannerBeam(i, lineY);
+    fbTint(i, inkR, inkG, inkB, EYE_FLOOR + scale8(beam, 255 - EYE_FLOOR));
+    const glint = scale8(beam, 60);
+    fbAdd(i, glint, glint, glint);
+  }
 }
 
 /* --- the fragments themselves --------------------------------------------- */
 function animAperture() {
-  const t = Math.floor(now) % 4600;
+  if (gFrame === 0) st.started = Math.floor(now);
+  const t = ((Math.floor(now) - st.started) >>> 0) % 4600;
   let open, flash = 0;
   if (t < 600)       open = 255 - Math.floor((t * 255) / 600);
   else if (t < 1800) {                               // shut, and the flash fires
@@ -746,7 +753,7 @@ function animAperture() {
   else if (t < 3400) open = Math.floor(((t - 1800) * 255) / 1600);
   else               open = 255;
 
-  const reach = 2 + scale8(255 - open, 18);
+  const reach = 1 + scale8(255 - open, FRAG_LEN - 1);
 
   fbFill(0, RING, 0, 0, 0);
   for (let f = 0; f < FRAG_COUNT; f++) {
@@ -843,54 +850,52 @@ function animRadar() {
 }
 
 /* --- glitch / hacker ------------------------------------------------------ */
-const DROPS = 10, DROP_COL = 6, DROP_STRIKE = 56, TRAIL_DECAY = 232, GLYPH_FLOOR = 70;
+const DROPS = 6, DROP_COL = 6, TRAIL_DECAY = 244, RAIN_HEAD_LEVEL = 220;
 const TRAVELERS = 2;
+function rainNext(from, column) {
+  const below = from < RING ? pxY(from) : 101;
+  let highest = -101, next = 255;
+  for (let i = 0; i < RING; i++) {
+    if (Math.abs(pxX(i) - column) > DROP_COL) continue;
+    const y = pxY(i);
+    if (y < below && y > highest) { highest = y; next = i; }
+  }
+  return next;
+}
+function rainPixel(i) {
+  const level = scratch[i], white = scale8(level, level);
+  fbSet(i, scale8(qadd8(inkR, scale8(255 - inkR, white)), level),
+           scale8(qadd8(inkG, scale8(255 - inkG, white)), level),
+           scale8(qadd8(inkB, scale8(255 - inkB, white)), level));
+}
 function animMatrix() {
-  // The trail lives on the LEDs, not in the air: a drop strikes an LED as it
-  // passes and that LED decays afterwards. A column here holds about three LEDs
-  // with big gaps, so a geometric trail would light almost nothing.
+  // New arrivals flash white once, then fade through custom color to black.
   if (gFrame === 0) {
     fbClear(); scratch.fill(0);
-    st.dx = new Array(DROPS).fill(0); st.dy = new Array(DROPS).fill(0);
-    st.spd = new Array(DROPS).fill(0); st.live = new Array(DROPS).fill(false);
+    st.dx = new Array(DROPS).fill(0); st.head = new Array(DROPS).fill(255);
+    st.spd = new Array(DROPS).fill(0); st.tick = new Array(DROPS).fill(0);
   }
 
   for (let i = 0; i < RING; i++) scratch[i] = scale8(scratch[i], TRAIL_DECAY);
-  for (let i = 0; i < RING; i++)
-    if (rnd(100) < 5) { const g = rnd(60, 140); if (g > scratch[i]) scratch[i] = g; }
 
   for (let d = 0; d < DROPS; d++) {
-    if (!st.live[d]) {
+    const previous = st.head[d];
+    if (st.head[d] === 255) {
       if (rnd(100) < 25) {
         const seed = rnd(RING);                    // a column that actually has LEDs
         st.dx[d] = pxX(seed);
-        st.dy[d] = (100 - Math.abs(st.dx[d])) * 16 + 60;
-        st.spd[d] = rnd(18, 40);
-        st.live[d] = true;
+        st.head[d] = rainNext(255, st.dx[d]);
+        st.spd[d] = rnd(3, 8);
+        st.tick[d] = 0;
       }
-      continue;
+    } else if (++st.tick[d] >= st.spd[d]) {
+      st.head[d] = rainNext(st.head[d], st.dx[d]);
+      st.tick[d] = 0;
     }
-    st.dy[d] -= st.spd[d];
-    if (st.dy[d] < -DROP_STRIKE) { st.live[d] = false; continue; }
-    for (let i = 0; i < RING; i++) {
-      if (Math.abs(pxX(i) - st.dx[d]) > DROP_COL) continue;
-      if (Math.abs(pxY(i) * 16 - st.dy[d]) <= DROP_STRIKE) scratch[i] = 255;
-    }
+    if (st.head[d] !== 255 && st.head[d] !== previous) scratch[st.head[d]] = RAIN_HEAD_LEVEL;
   }
 
-  for (let i = 0; i < RING; i++)
-    fbTint(i, inkR, inkG, inkB, GLYPH_FLOOR + scale8(scratch[i], 255 - GLYPH_FLOOR));
-
-  for (let d = 0; d < DROPS; d++) {
-    if (!st.live[d]) continue;
-    for (let i = 0; i < RING; i++) {
-      if (Math.abs(pxX(i) - st.dx[d]) > DROP_COL) continue;
-      const dy = Math.abs(pxY(i) * 16 - st.dy[d]);
-      if (dy > DROP_STRIKE) continue;
-      const w = 255 - Math.floor((dy * 255) / DROP_STRIKE);
-      fbAdd(i, scale8(w, 150), scale8(w, 60), scale8(w, 150));
-    }
-  }
+  for (let i = 0; i < RING; i++) rainPixel(i);
 
   const cursor = 32 + scale8(sin8(Math.floor(now / 8)), 200);
   fbTint(EYE_C, inkR, inkG, inkB, cursor);
@@ -901,21 +906,22 @@ function animMatrix() {
 }
 
 function animBoot() {
+  if (gFrame === 0) st.started = Math.floor(now);
   // Outline only -- the twelve tail LEDs stay dark for the whole sequence, so
   // the badge wakes up drawing its own silhouette rather than filling in solid.
-  const t = Math.floor(now) % 5600;
+  const t = ((Math.floor(now) - st.started) >>> 0) % 5600;
   fbClear();
 
   if (t < 1600) {                                    // trace the outline
     const lit = Math.floor((t * PERIM_COUNT) / 1600);
     for (let r = 0; r <= lit && r < PERIM_COUNT; r++) {
       const age = lit - r, v = age > 8 ? 45 : 255 - age * 26;
-      fbTint(PERIM[r], inkR, inkG, inkB, v);
+      fbTint(PERIM[(perimPos[CORNER_TOP] + r) % PERIM_COUNT], inkR, inkG, inkB, v);
     }
 
   } else if (t < 2600) {                             // corners lock in, one by one
     for (let r = 0; r < PERIM_COUNT; r++) fbTint(PERIM[r], inkR, inkG, inkB, 70);
-    const s = t - 1600, corner = [CORNER_BR, CORNER_BL, CORNER_TOP];
+    const s = t - 1600, corner = [CORNER_TOP, CORNER_BR, CORNER_BL];
     for (let c = 0; c < 3; c++) {
       if (s > c * 280) {
         const age = s - c * 280, v = age > 300 ? 200 : 255 - Math.floor((age * 55) / 300);
@@ -956,21 +962,21 @@ function animBoot() {
 
 /* --- animation table (mirrors ANIMS[] in the sketch) ---------------------- */
 const ANIMS = [
-  // Down to Matrix Rain everything follows the house colour; the four after it
+  // Down to Matrix Rain everything follows the custom color; the four after it
   // are multi-coloured by design, so they are grouped at the end.
   { fn: animBoot,         ms: 25, name: "Boot Sequence", fam: "Wake"        },
-  { fn: animBreathe,      ms: 25, name: "Breathe",       fam: "House colour" },
-  { fn: animVortex,       ms: 22, name: "Vortex",        fam: "House colour" },
-  { fn: animRadar,        ms: 20, name: "Radar",         fam: "House colour" },
-  { fn: animCorners,      ms: 45, name: "Corner Pulse",  fam: "House colour" },
-  { fn: animScanner,      ms: 22, name: "Scanner",       fam: "House colour" },
-  { fn: animAperture,     ms: 22, name: "Aperture",      fam: "House colour" },
-  { fn: animChain,        ms: 25, name: "Fragment Chain",fam: "House colour" },
-  { fn: animMatrix,       ms: 30, name: "Matrix Rain",   fam: "House colour" },
+  { fn: animBreathe,      ms: 25, name: "Breathe",       fam: "Custom color" },
+  { fn: animVortex,       ms: 22, name: "Vortex",        fam: "Custom color" },
+  { fn: animRadar,        ms: 20, name: "Radar",         fam: "Custom color" },
+  { fn: animCorners,      ms: 45, name: "Corner Pulse",  fam: "Custom color" },
+  { fn: animScanner,      ms: 22, name: "Scanner",       fam: "Custom color" },
+  { fn: animAperture,     ms: 22, name: "Aperture",      fam: "Custom color" },
+  { fn: animChain,        ms: 25, name: "Fragment Chain",fam: "Custom color" },
+  { fn: animMatrix,       ms: 35, name: "Matrix Rain",   fam: "Custom color" },
+  { fn: animRainbow,      ms: 22, name: "Rainbow",       fam: "Multicolour"  },
   { fn: animDrift,        ms: 30, name: "Drift",         fam: "Multicolour"  },
   { fn: animPlasma,       ms: 28, name: "Plasma",        fam: "Multicolour"  },
   { fn: animCollide,      ms: 18, name: "Collide",       fam: "Multicolour"  },
-  { fn: animRainbow,      ms: 22, name: "Rainbow",       fam: "Multicolour"  },
 ];
 </script>
 
@@ -980,7 +986,7 @@ const ANIMS = [
 /* There is a blue power LED behind the eye and it is always lit, so "off" is not
    a colour the badge can show there -- a dark eye reads as blue. Everything is
    lifted to a floor that swamps it: an existing tint scales up with its hue
-   intact, a dark eye takes the house green. */
+   intact, a dark eye takes the default green. */
 const EYE_FLOOR = 95;
 function floorEye() {
   for (let i = GRB_FIRST; i < N; i++) {
@@ -1008,8 +1014,17 @@ function pushFrame() {
 }
 
 /* --- on-badge readout, as in showFeedback() ------------------------------- */
-let gFeedback = 0, gFeedbackTo = 0;          // 0 none, 1 mode, 2 brightness
-// While navigating, the whole badge sits lit in the house ink at the set
+let gFeedback = 0, gFeedbackTo = 0;          // 0 none, 1 mode, 2 adjustment
+let buttonMenu = 0;                        // 0 none, 1 brightness, 2 colour
+const MENU_IDLE_MS = 3000;
+function keepMenuOpen(ts = performance.now()) {
+  gFeedback = 2; gFeedbackTo = ts + MENU_IDLE_MS;
+}
+function leaveMenu() {
+  buttonMenu = 0; gFeedback = 0; gFrame = 0;
+  fbClear(); previewDirty = true;
+}
+// While navigating, the whole badge sits lit in the custom color at the set
 // brightness, so a glance shows what it is configured to. The animation number
 // rides on top as a brighter run in the same ink.
 const NAV_FILL = 150, NAV_FILL_EYE = 190, NAV_MARK = 235;
@@ -1179,6 +1194,32 @@ function pupilShape(c) {
     b.fillStyle = "#30343a"; b.fillRect(-7, -plateR * .54, 14, 18); b.restore();
   }
   b.restore();
+  // The PCB lips sweep along the rim and end in tangential overlaps. Paint
+  // them above the engraved plate so they occlude its edge and tick marks.
+  for (let f = 0; f < 3; f++) {
+    b.save(); b.translate(eyeX, plateY); b.scale(plateR, plateR * .98);
+    b.rotate(f * Math.PI * 2 / 3);
+    b.beginPath(); b.moveTo(-.98, -.20);
+    b.bezierCurveTo(-.85, -.79, -.33, -1.18, .16, -1.16);
+    b.lineTo(.22, -1.32); b.lineTo(.40, -.83);
+    b.bezierCurveTo(.04, -1.03, -.46, -.98, -.72, -.66);
+    b.bezierCurveTo(-.86, -.49, -.94, -.32, -.98, -.20);
+    b.closePath(); b.fillStyle = "#19171f"; b.fill();
+
+    b.beginPath(); b.moveTo(-.98, -.20);
+    b.bezierCurveTo(-.94, -.32, -.86, -.49, -.72, -.66);
+    b.bezierCurveTo(-.46, -.98, .04, -1.03, .40, -.83);
+    b.strokeStyle = "#343540"; b.lineWidth = .013; b.stroke();
+
+    // Silkscreen continues onto the overhanging board, as in the photo.
+    b.beginPath(); b.moveTo(-.82, -.65);
+    b.bezierCurveTo(-.57, -.97, -.18, -1.10, .28, -1.04);
+    b.strokeStyle = "#8b8c69"; b.lineWidth = .013; b.stroke();
+    b.beginPath(); b.moveTo(.23, -1.27); b.lineTo(.386, -.855);
+    b.lineTo(.49, -1.02); b.moveTo(.386, -.855); b.lineTo(.19, -.94);
+    b.strokeStyle = "#a2a27e"; b.lineWidth = .016; b.stroke();
+    b.restore();
+  }
   for (const i of [TOP_L, TOP_R]) {
     b.save(); b.translate(LED[i].x, LED[i].y); b.rotate(i === TOP_L ? .55 : -.55);
     b.fillStyle = "#262d38"; b.fillRect(-5, -18, 10, 36); b.restore();
@@ -1187,7 +1228,7 @@ function pupilShape(c) {
   b.save(); b.clip();
   b.beginPath(); b.arc(eyeX, irisY, irisR, 0, Math.PI * 2);
   b.fillStyle = "#252633"; b.fill(); b.strokeStyle = "#b6b49a"; b.lineWidth = 2; b.stroke();
-  // Trace the broad, connected shutter ink seen around the pupil in the photo.
+  // Keep the iris understated; the fragment geometry belongs to the dial around it.
   b.save(); b.translate(eyeX, irisY); b.scale(irisR, irisR);
   b.beginPath(); b.moveTo(-.55, -.82); b.lineTo(-.50, -.25);
   b.quadraticCurveTo(-.10, -.45, .03, -.78);
@@ -1321,7 +1362,9 @@ function setMode(m, fromBadge) {
   gMode = ((m % ANIMS.length) + ANIMS.length) % ANIMS.length;
   gFrame = 0; fbClear(); scratch.fill(0);
   for (const k in st) delete st[k];
-  if (fromBadge) { gFeedback = 1; gFeedbackTo = now + 400; }
+  buttonMenu = 0;
+  if (fromBadge) { gFeedback = 1; gFeedbackTo = performance.now() + 400; }
+  else gFeedback = 0;
   syncMode();
 }
 // One step of the ramp, proportional to where it already is (~6%), because the
@@ -1334,7 +1377,7 @@ function rampBrightness() {
   else if (v <= BRIGHT_MIN) { v = BRIGHT_MIN; gBrightDir =  1; }
   gBright = v;
   syncBright();
-  gFeedback = 2; gFeedbackTo = now + 400;          // hold the fill through the ramp
+  keepMenuOpen();
 }
 
 /* --- UI ------------------------------------------------------------------- */
@@ -1375,7 +1418,7 @@ function syncBright() {
   $("brOut").textContent = gBright + " / 255";
 }
 
-let playing = true, speed = 1;
+let playing = true, speed = DEFAULT_SPEED / 100;
 function syncPlaying() {
   $("playBtn").textContent = playing ? "Pause" : "Play";
   $("playBtn").classList.toggle("pressed", !playing);
@@ -1411,26 +1454,21 @@ $("paths").addEventListener("change", e => { showPaths = e.target.checked; saveV
    time so the hold-to-repeat feels the way it will in your hand. */
 const badgeBtn = $("badgeBtn");
 let btnDown = false, btnDownAt = 0, btnLongFired = false, btnNextRep = 0;
-let btnCombo = false, btnLongCount = 0, btnReleasedAt = 0;
-let btnStartBright = gBright, btnStartBrightDir = gBrightDir;
-const COMBO_MS = 1200;
 function pressStart() {
   if (btnDown) return;
   if (!playing) { playing = true; syncPlaying(); }
   btnDown = true; btnDownAt = performance.now(); btnLongFired = false;
-  if (btnDownAt - btnReleasedAt >= COMBO_MS) btnLongCount = 0;
-  if (btnLongCount === 0) { btnStartBright = gBright; btnStartBrightDir = gBrightDir; }
-  btnCombo = btnLongCount === 2;
+  if (btnDownAt >= gFeedbackTo) buttonMenu = 0;
+  if (buttonMenu) keepMenuOpen(btnDownAt);
   badgeBtn.classList.add("pressed");
 }
 function pressEnd() {
   if (!btnDown) return;
   if (!btnLongFired) {
-    setMode(gMode + 1, true);
-    btnLongCount = 0;
+    if (buttonMenu) leaveMenu();
+    else setMode(gMode + 1, true);
   } else {
-    btnLongCount = btnCombo ? 0 : btnLongCount + 1;
-    btnReleasedAt = performance.now();
+    keepMenuOpen();
   }
   btnDown = false; badgeBtn.classList.remove("pressed");
 }
@@ -1441,16 +1479,18 @@ badgeBtn.addEventListener("keydown", e => { if ((e.key === " " || e.key === "Ent
 badgeBtn.addEventListener("keyup", e => { if (e.key === " " || e.key === "Enter") { e.preventDefault(); pressEnd(); } });
 
 function serviceButton(ts) {
-  if (!btnDown) return;
+  if (!btnDown) {
+    if (buttonMenu && ts >= gFeedbackTo) leaveMenu();
+    return;
+  }
+  if (buttonMenu) keepMenuOpen(ts);
   if (!btnLongFired && ts - btnDownAt >= BTN_LONG_MS) {
     btnLongFired = true;
-    if (btnCombo) {
-      gBright = btnStartBright; gBrightDir = btnStartBrightDir; syncBright();
-    }
-    if (btnCombo) rampHue(); else rampBrightness();
+    buttonMenu = buttonMenu === 1 ? 2 : 1;
+    if (buttonMenu === 2) rampHue(); else rampBrightness();
     btnNextRep = ts + BRIGHT_RAMP_MS;
   } else if (btnLongFired && ts >= btnNextRep) {
-    if (btnCombo) rampHue(); else rampBrightness();
+    if (buttonMenu === 2) rampHue(); else rampBrightness();
     btnNextRep = ts + BRIGHT_RAMP_MS;
   }
 }
@@ -1496,7 +1536,7 @@ function updateTelemetry(ts) {
 }
 
 /* --- main loop (mirrors loop() in the sketch) ----------------------------- */
-let lastReal = 0, lastFrameAt = 0;
+let lastReal = 0, lastFrameAt = 0, lastFeedbackFrameAt = 0;
 function tick(ts) {
   requestAnimationFrame(tick);
   if (!lastReal) { lastReal = ts; fpsAt = ts; }
@@ -1513,11 +1553,12 @@ function tick(ts) {
   if (playing) now += dt * speed;
 
   const a = ANIMS[gMode];
-  if (now - lastFrameAt >= a.ms || previewDirty) {
+  if (now - lastFrameAt >= a.ms || previewDirty || (gFeedback && ts - lastFeedbackFrameAt >= a.ms)) {
     previewDirty = false;
     lastFrameAt = now;
+    lastFeedbackFrameAt = ts;
     if (gFeedback) {
-      if (now >= gFeedbackTo) { gFeedback = 0; fbClear(); gFrame = 0; }
+      if (ts >= gFeedbackTo) { gFeedback = 0; fbClear(); gFrame = 0; }
       else showFeedback();
     }
     if (!gFeedback) { a.fn(); gFrame++; }
@@ -1592,7 +1633,7 @@ function serAdopt(m, b, h, s, p, dirty) {
     if (adopt("s")) { speed = s / 100; syncSpeed(); }
     if (adopt("p")) { playing = !!p; syncPlaying(); }
   } else if (first) {
-    speed = 1; playing = true; syncSpeed(); syncPlaying();
+    speed = DEFAULT_SPEED / 100; playing = true; syncSpeed(); syncPlaying();
   }
   serFrom = false;
   serControls();
@@ -1789,7 +1830,7 @@ if (navigator.serial) {
   serStatus("not linked", false);
 }
 
-syncMode(); syncBright(); updateInk(); syncHue();
+syncMode(); syncBright(); syncSpeed(); updateInk(); syncHue();
 ANIMS[gMode].fn(); gFrame++; pushFrame(); draw();   // render one frame at rest
 requestAnimationFrame(tick);
 </script>

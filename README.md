@@ -2,15 +2,16 @@
 
 Welcome to the Illuminati Party® badge 'Fragments' for 2024 (DC32).
 
-This fork adds a rewritten animation firmware and a browser test bench for it.
+This fork adds rewritten animation firmware and Badge Studio for browser control.
 The original conference sketch is preserved unchanged as `ConferenceCode_v1`.
 
 | | |
 |---|---|
-| `Fragments_NNA/Fragments_NNA.ino` | Firmware. 13 animations, persistent output settings, USB serial control. |
+| `DC32_Fragments_NNA.ino` | Firmware. 13 animations, persistent output settings, USB serial control. |
 | `sim/bench.html` | Browser simulator, live badge control, and firmware installer. |
 | `firmware/` | Pre-built images and the browser installer manifest. |
 | `tests/button-gestures.cjs` | Host-side tests of the firmware button handler. |
+| `tests/animations.cjs` | Firmware and simulator animation regression checks. |
 | `ConferenceCode_v1` | The original conference sketch, untouched. |
 | `DC32 Stand v2.stl` | Printable stand. |
 
@@ -20,6 +21,11 @@ The original conference sketch is preserved unchanged as `ConferenceCode_v1`.
 
 Either toolchain works. The IDE is the gentler path; `arduino-cli` is what this
 fork was built and flashed with.
+
+The repository root is the Arduino sketch folder. Keep its name
+`DC32_Fragments_NNA` so it matches `DC32_Fragments_NNA.ino`, as required by
+Arduino. When extracting a GitHub ZIP, rename the resulting `-main` folder.
+Run the commands below from the repository root.
 
 **Arduino IDE**
 
@@ -47,20 +53,20 @@ wiring fault.
 
 ### From the browser, with nothing installed
 
-The [hosted test bench](https://neednotapply.github.io/DC32_Fragments_NNA/) can
+The [hosted Badge Studio](https://neednotapply.github.io/DC32_Fragments_NNA/) can
 flash the badge itself — press **Flash badge**, pick the port, done. It uses
 [ESP Web Tools](https://esphome.github.io/esp-web-tools/) over Web Serial, so it
 needs Chrome or Edge and an `https` page; the pre-built image lives in
-`firmware/`. Disconnect the bench first if it is already linked, since the two
+`firmware/`. Disconnect the studio first if it is already linked, since the two
 cannot hold the same port at once.
 
 To refresh the images after changing the firmware (using ESP32 core 3.3.11):
 
 ```bash
-arduino-cli compile --fqbn esp32:esp32:esp32 --output-dir /tmp/fw Fragments_NNA
-cp /tmp/fw/Fragments_NNA.ino.bootloader.bin firmware/bootloader.bin
-cp /tmp/fw/Fragments_NNA.ino.partitions.bin firmware/partitions.bin
-cp /tmp/fw/Fragments_NNA.ino.bin firmware/application.bin
+arduino-cli compile --fqbn esp32:esp32:esp32 --output-dir /tmp/fw .
+cp /tmp/fw/DC32_Fragments_NNA.ino.bootloader.bin firmware/bootloader.bin
+cp /tmp/fw/DC32_Fragments_NNA.ino.partitions.bin firmware/partitions.bin
+cp /tmp/fw/DC32_Fragments_NNA.ino.bin firmware/application.bin
 cp ~/.arduino15/packages/esp32/hardware/esp32/3.3.11/tools/partitions/boot_app0.bin firmware/boot_app0.bin
 esptool --chip esp32 merge-bin -o firmware/fragments-esp32.bin \
   0x1000  firmware/bootloader.bin \
@@ -80,11 +86,11 @@ without Improv support.
 
 ### From a toolchain
 
-In the IDE, open `Fragments_NNA/Fragments_NNA.ino` and press Upload. Or:
+In the IDE, open `DC32_Fragments_NNA.ino` and press Upload. Or:
 
 ```bash
-arduino-cli compile --fqbn esp32:esp32:esp32 Fragments_NNA
-arduino-cli upload -p /dev/ttyUSB0 --fqbn esp32:esp32:esp32 Fragments_NNA
+arduino-cli compile --fqbn esp32:esp32:esp32 .
+arduino-cli upload -p /dev/ttyUSB0 --fqbn esp32:esp32:esp32 .
 ```
 
 A serial monitor at **115200** baud reports the animation and brightness on every
@@ -93,9 +99,9 @@ change, which is the quickest way to see whether the button is behaving:
 ```
 [0/12] Boot Sequence
 Fragments: 13 animations, brightness 4..160.
-  short press        = next animation
+  short press        = leave menu, or next animation
   hold               = ramp brightness, turns round at each end
-  two long presses, then hold = ramp colour
+  next hold in menu  = switch brightness / colour
 ```
 
 ### If it will not connect
@@ -119,10 +125,15 @@ Built clean against esp32 core 3.3.11 with Adafruit NeoPixel 1.15.5:
 
 Run `node tests/button-gestures.cjs` with Node.js and `g++` installed. It compiles
 the actual firmware button handler on the host and checks debounce, long-press
-thresholds, the three-hold colour sequence, brightness restoration, and resuming
-paused playback. Temporary build files are removed after the test.
+thresholds, brightness/colour menu switching, idle timeouts, holding across a
+deadline, clock rollover, and resuming paused playback. Temporary build files
+are removed after the test.
 
-For browser changes, check the bench at desktop and mobile sizes, then verify
+Run `node tests/animations.cjs` to check both animation implementations: Boot's
+apex start, Aperture's three anchor LEDs, Rainbow's eye sampling and list order,
+Scanner's eye sweep, downward rain paths, and saved-animation index migration.
+
+For browser changes, check the studio at desktop and mobile sizes, then verify
 connect/disconnect, live frames, control changes, and saved-state confirmation
 with the badge. Hardware timing and reboot persistence still need a real device.
 
@@ -132,23 +143,29 @@ with the badge. Hardware timing and reboot persistence still need a real device.
 
 | Input | Action |
 |---|---|
-| Short press | Next animation |
-| Hold (after 0.7s) | Ramp brightness, turning round at each end |
-| Two long presses, then a third press held | Ramp the house colour |
+| Short press, outside a menu | Next animation |
+| Short press in either adjustment menu | Leave the menu; keep the current animation |
+| Hold (after 0.7s), outside a menu | Open brightness; keep holding to ramp it |
+| Long press in the brightness menu | Switch to colour; keep holding to ramp it |
+| Long press in the colour menu | Switch to brightness; keep holding to ramp it |
 
 Any badge-button press resumes a paused animation immediately, then follows the
-normal gesture: a short release advances the animation, and holding adjusts
+normal gesture: a short release leaves an open menu or advances the animation,
+and holding adjusts
 brightness or colour. This applies to both the physical and browser badge button.
 
-For colour, hold for at least 0.7 seconds and release, do that once more, then
-press a third time and keep holding. Keep each release-to-press gap under 1.2
-seconds. The first two holds adjust brightness normally; when the third hold
-reaches 0.7 seconds, it restores the brightness from before the sequence and
-ramps colour. Animation does not change. A short press or a gap of 1.2 seconds
-resets the sequence. Releasing the colour hold also resets it.
+The adjustment menu stays open for three seconds after release. Press again
+within that window and hold for 0.7 seconds to switch between brightness and
+colour. Starting a press keeps the menu open while the hold is recognised,
+even near the end of the timeout. Each hold switches only once, then ramps the
+selected value until release. Brightness turns round at each end; colour wraps
+around the wheel. Switching menus preserves both adjustments and the animation.
+A short press leaves the menu without changing the animation. Three seconds idle
+returns to the animation; the next long press opens brightness again. Menu
+timing uses real time, independent of animation speed.
 
 While you are navigating — stepping animations, ramping brightness, ramping
-colour — the whole badge sits lit in the house ink at the set brightness, so a
+colour — the whole badge sits lit in the custom color at the set brightness, so a
 glance tells you what it is configured to. The animation number rides on top of
 that in the **opposite hue**, saturated harder than the ink.
 
@@ -190,21 +207,21 @@ at the top, so nothing else needs touching.
 
 | # | Name | Family |
 |---|---|---|
-| 0 | Boot Sequence | What the badge wakes up to — outline only, legs dark |
+| 0 | Boot Sequence | Outline trace from apex LED #43, legs dark |
 | 1 | Breathe | Outline and eye breathing together |
 | 2 | Vortex | Three arms winding inward, one per board |
 | 3 | Radar | One beam sweeping, with a decaying wake |
 | 4 | Corner Pulse | Pulses out from each corner, meeting at the midpoints |
-| 5 | Scanner | The eye tracks while a line sweeps |
-| 6 | Aperture | The boards close like iris blades, then the flash fires |
+| 5 | Scanner | A horizontal beam sweeps vertically through the outline and all five eye LEDs |
+| 6 | Aperture | Blades retract to #00, #20, #40, then close and flash |
 | 7 | Fragment Chain | The `DOUT`→`DIN` data path, made visible |
-| 8 | Matrix Rain | The badge as a wall, drops falling through it |
-| 9 | Drift | Multicoloured |
-| 10 | Plasma | Multicoloured |
-| 11 | Collide | Multicoloured — two travellers head on |
-| 12 | Rainbow | Multicoloured |
+| 8 | Matrix Rain | Downward white drops fade through the custom color to black |
+| 9 | Rainbow | Multicoloured, eye samples the nearest outline colours |
+| 10 | Drift | Multicoloured |
+| 11 | Plasma | Multicoloured |
+| 12 | Collide | Multicoloured — two travellers head on |
 
-**0–8 follow the house colour** — two long presses, then hold to change it and they move with
+**0–8 follow the custom color** — hold for brightness, then hold again for colour and they move with
 it. **9–12 are multicoloured by design** and ignore the setting, so they are
 grouped at the end rather than scattered through the list, where the setting
 looked broken every time it landed on one that does not use it.
@@ -226,9 +243,12 @@ own.
 
 ## Settings
 
-Animation, brightness, colour, speed (0.10x to 3.00x), and play/pause survive a
+Animation, brightness, colour, speed (0.10x to 3.00x, default 1.00x), and play/pause survive a
 power cycle. They are stored together in one versioned NVS record. Existing
 firmware's mode/brightness/colour keys are migrated on the first saved change.
+Version 2 also remaps the old multicolour indices so moving Rainbow to the front
+does not change the saved animation. Use the updated studio with updated firmware
+so their animation lists agree.
 Button timing and the save delay use real time, independent of animation speed.
 
 Writes are held back until things have been quiet for `SETTINGS_SAVE_MS`. NVS
@@ -237,7 +257,7 @@ twenty-five times a second, so committing each step would put tens of thousands
 of writes through it in an evening of fiddling. Waiting for the quiet turns a
 whole ramp into a single write. A record that points past the end of the
 animation table — after the list shrinks, say — is discarded rather than used.
-The bench shows **Saving to badge...** until the write succeeds, then **Saved on
+The studio shows **Saving to badge...** until the write succeeds, then **Saved on
 badge**. Wait for that confirmation before cutting power, or press **Save now**
 to commit immediately. A failed write stays pending and is retried. LED indices
 and path overlays are browser view preferences, stored locally; they do not
@@ -282,7 +302,7 @@ buffer is busy, keeping animations responsive.
 screen /dev/ttyUSB0 115200
 ```
 
-### From the test bench
+### From the Badge Studio
 
 Open `sim/bench.html` in **Chrome or Edge**, press **Connect badge** and pick the
 badge's port. The page then mirrors the badge both ways: move a slider and the
@@ -329,7 +349,7 @@ the *fast* direction, which points at load capacitance being too low.
 Dropping both radio stacks took the build from **86% of flash to 24%**.
 
 
-## Test bench
+## Badge Studio
 
 Open `sim/bench.html` in any browser — no build step, no server. It runs the
 same sine table, the same `ColorHSV`, the same gamma curve and the same current
@@ -382,7 +402,7 @@ authored below roughly 80 does not reach the LED at all.**
 The same power law bites colour. It crushes the minor channels much harder than
 the dominant one, so authoring 55 red against 255 green does not give 22% red at
 the LED — it gives about 3%, and what should be a sage green comes out neon. The
-house ink is generated from a selectable hue at `INK_SAT` 131, landing on
+custom color is generated from a selectable hue at `INK_SAT` 131, landing on
 0.35 : 1.00 : 0.21 at the strip. Scaling all three channels together preserves
 the ratio, so a tint survives being dimmed.
 
@@ -433,8 +453,8 @@ looks like it ought to be the outline and isn't.
 
 Anything that reads as **motion along an edge** belongs in perimeter order. A
 head walking strand order veers into the middle of the badge every twenty LEDs,
-does four, and pops back out. Comet, Collide, Rainbow, Corner Pulse, Matrix Rain,
-Boot Sequence and the discharge half of Charge & Fire all use `perimPoint()`.
+does four, and pops back out. Collide, Rainbow, Corner Pulse and Boot Sequence
+use perimeter order to follow the outline.
 
 `spillTail()` lets those effects run down a board's four tail LEDs as they pass
 its attachment point, so the inner LEDs join the motion instead of sitting dead
@@ -442,19 +462,12 @@ through every chase.
 
 Plasma and Scanner are **positional** — they never referenced order in the first
 place, which is why they never had this problem.
-Matrix Rain is positional too, and the clearest case for it: the badge is a wall
-and a drop falls straight down through it at a constant speed *in space*, not
-from LED to LED. So the delay between two lit LEDs is however long the empty
-board between them takes to cross. LEDs 49 and 59 share the column at x=38 with
-fifty height-units of nothing between them, while 59 to 8 is only twelve.
-
-That gap is also why the trail lives **on the LEDs** rather than in the air. A
-column here holds about 3.3 LEDs on average with large voids between them, so
-lighting whatever happens to lie just above the head lights almost nothing and
-the drop reads as a lone point crossing bare board. Instead a drop *strikes* an
-LED as it passes and that LED decays on its own, which makes a column of three
-read as three flashes falling in sequence. The same decaying buffer carries the
-dim glyph field between drops, so trail and texture are one mechanism.
+Matrix Rain is positional too: up to six drops follow columns of real LEDs,
+stepping strictly downward. Each drop has its own pace, with a 35 ms frame
+interval at the default speed. New arrivals get a softened white highlight,
+then gradually dim through the selected custom color to black until another
+drop refreshes them. The trail lives **on the LEDs**, so it remains visible
+across the large gaps between physical lights.
 
 Drops also take their column from a randomly chosen LED rather than a random x.
 Picking x freely drops a third of them down stripes of bare board where nothing
@@ -500,7 +513,7 @@ sketch:
 not a colour the badge can show there — an eye left dark does not read as dark,
 it reads as blue. `floorEye()` lifts everything bound for the strip to
 `EYE_FLOOR`: a tint already in place scales up with its hue intact, and an eye
-left completely dark takes the house green instead of the power LED's blue.
+left completely dark takes the default green instead of the power LED's blue.
 Raise `EYE_FLOOR` if blue still shows through.
 
 **LEDs 63 and 64 are aimed down into the white of the eye.** They are wash
@@ -520,7 +533,7 @@ it to within a tenth of an LED-spacing. Both consequences are confirmed against
 the hardware: **17 LEDs from one corner LED to the next inclusive**, and **12
 LEDs sitting inside the outline** in addition to the five at the eye.
 
-Turn on *Trace each board's 20 LEDs* in the test bench to see the modelled path
+Turn on *Trace each board's 20 LEDs* in the Badge Studio to see the modelled path
 for each board next to the real thing.
 
 ---
