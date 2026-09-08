@@ -81,8 +81,10 @@
   .hw span { text-transform: uppercase; letter-spacing: .11em; color: var(--silk-faint); }
 
   /* ---- layout ---- */
+  /* Columns stretch to the taller of the two rather than sitting at their own
+     height, so the log below the stage can run down level with the rail. */
   main { display: grid; grid-template-columns: minmax(0,1fr) 316px; gap: 26px;
-         align-items: start; margin-top: 24px; }
+         align-items: stretch; margin-top: 24px; }
   @media (max-width: 900px) { main { grid-template-columns: minmax(0,1fr); } }
 
   /* ---- stage ---- */
@@ -131,6 +133,44 @@
      lone button group back to the left edge of its own line. */
   .tgroup { display: flex; flex-wrap: wrap; gap: 8px; align-items: center;
             margin-left: auto; }
+  /* Several rules here set display on elements that also carry the hidden
+     attribute - .link, .tgroup, esp-web-install-button. An author display rule
+     outranks the UA sheet's [hidden]{display:none}, so hidden quietly stopped
+     hiding: the link status still rendered "not linked" on a page that had just
+     explained no link was possible. One guard beats chasing each selector. */
+  [hidden] { display: none !important; }
+  /* What the badge is saying, while it is linked. The F frame stream is kept
+     out of here deliberately: it is twenty lines a second of hex that the
+     chamber above already draws, and it would bury everything worth reading. */
+  .serlog { border: 1px solid var(--trace); border-radius: 3px;
+            background: var(--pcb-deep); overflow: hidden;
+            /* Takes whatever height the stage has left over. flex-basis 0, not
+               auto: on auto the log demands its full content height, which
+               inflates the grid row instead of scrolling, so the page grew
+               without bound as lines arrived. min-height keeps it usable when
+               the stage is the taller column and there is nothing spare. */
+            flex: 1 1 0; min-height: 140px;
+            display: flex; flex-direction: column; }
+  .serlog-head { padding: 7px 11px; border-bottom: 1px solid var(--trace);
+                 font-family: var(--f-display); font-size: 11px; font-weight: 600;
+                 letter-spacing: .09em; text-transform: uppercase;
+                 color: var(--silk-faint); }
+  .serlog-body { padding: 8px 11px; flex: 1 1 0; min-height: 0; overflow-y: auto;
+                 font-family: var(--f-mono); font-size: 11px; line-height: 1.65;
+                 color: var(--silk-dim); overflow-wrap: anywhere; }
+  .serlog-body > div { display: flex; gap: 10px; }
+  .serlog-body time { flex: 0 0 auto; color: var(--silk-faint);
+                      font-variant-numeric: tabular-nums; }
+  .serlog-body .dir { flex: 0 0 auto; color: var(--silk-faint); }
+  /* Sent lines recede; what the badge answers is the part worth reading. */
+  .serlog-body .out { color: var(--silk-faint); }
+  .serlog-body .err { color: var(--warn); }
+  .serlog-body .rep { flex: 0 0 auto; margin-left: auto; color: var(--silk-faint); }
+  .serlog-waiting { color: var(--silk-faint); font-style: italic; }
+
+  /* Shown in place of the controls when no badge can be reached from here. */
+  .hwnote { margin: 0; font-size: 12px; line-height: 1.5;
+            color: var(--silk-faint); max-width: 72ch; }
   /* A custom element defaults to display:inline, which sits its slotted button
      on the text baseline rather than with its siblings. */
   esp-web-install-button { display: inline-flex; align-items: center; }
@@ -262,14 +302,20 @@
 
       <div class="transport">
         <span class="link" id="serLink" hidden>not linked</span>
-        <div class="tgroup">
+        <p class="hwnote" id="hwNote" hidden></p>
+        <div class="tgroup" id="hwControls">
           <button class="ctl" id="serBtn" hidden aria-describedby="serLink">Connect badge</button>
           <esp-web-install-button manifest="firmware.json">
             <button class="ctl" id="flashBtn" slot="activate" title="Leave Erase device unchecked to keep badge settings">Flash badge</button>
-            <span class="link" slot="unsupported">flashing needs Chrome or Edge</span>
+            <span class="link" slot="unsupported">flashing needs Web Serial</span>
             <span class="link" slot="not-allowed">flashing needs an https page</span>
           </esp-web-install-button>
         </div>
+      </div>
+
+      <div class="serlog" id="serLog" hidden>
+        <div class="serlog-head"><span>Badge output</span></div>
+        <div class="serlog-body" id="serLogBody" role="log" aria-live="off"></div>
       </div>
     </section>
 
@@ -1681,7 +1727,62 @@ function serAdopt(m, b, h, s, p, dirty) {
   }
 }
 
+/* --- badge output log ----------------------------------------------------
+ * Everything the badge says while linked, minus the F frame stream: that is
+ * 20 lines a second of hex the chamber already renders, and it would bury the
+ * state reports and errors this exists to show. The 2-second "?" poll answers
+ * with an identical S line each time, so consecutive repeats collapse to a
+ * count rather than scrolling everything else away. */
+/* Both directions, so the log reads as a conversation rather than half of one.
+ * Sent lines sit back visually; what the badge says is the part worth reading.
+ * The 2-second keepalive ("f 1" then "?") means roughly three lines every two
+ * seconds even at rest, hence the roomier cap. */
+const LOG_MAX = 400;
+let logFollow = true, logLastKey = null, logLastRow = null, logRepeat = 1;
+
+function serLogSeed() {
+  const body = $("serLogBody");
+  body.innerHTML = "";
+  logLastKey = null; logLastRow = null; logRepeat = 1;
+  const w = document.createElement("div");
+  w.className = "serlog-waiting";
+  w.textContent = "nothing sent or received yet\u2026";
+  body.append(w);
+}
+
+function serLog(line, dir) {
+  const body = $("serLogBody");
+  const waiting = body.querySelector(".serlog-waiting");
+  if (waiting) waiting.remove();
+
+  const key = dir + " " + line;
+  if (key === logLastKey && logLastRow) {        // same line again: count it
+    logRepeat++;
+    let tag = logLastRow.querySelector(".rep");
+    if (!tag) { tag = document.createElement("span"); tag.className = "rep"; logLastRow.append(tag); }
+    tag.textContent = "\u00d7" + logRepeat;
+  } else {
+    logLastKey = key; logRepeat = 1;
+    const row = document.createElement("div");
+    const t = document.createElement("time");
+    t.textContent = new Date().toTimeString().slice(0, 8);
+    const arrow = document.createElement("span");
+    arrow.className = "dir";
+    arrow.textContent = dir === "out" ? "\u203a" : "\u2039";
+    const txt = document.createElement("span");
+    txt.textContent = line;
+    txt.className = dir === "out" ? "out" : (line.startsWith("ERR") ? "err" : "");
+    row.append(t, arrow, txt);
+    body.append(row);
+    logLastRow = row;
+    while (body.childElementCount > LOG_MAX) body.firstElementChild.remove();
+  }
+  // Only chase the tail if the reader has not scrolled up to look at something.
+  if (logFollow) body.scrollTop = body.scrollHeight;
+}
+
 function serLine(line) {
+  if (line && !line.startsWith("F ")) serLog(line, "in");
   const state = line.match(/^S (\d+) (\d+) (\d+)(?: (\d+) (\d+) (\d+))?$/);
   if (state) { serAdopt(...state.slice(1).map(v => v === undefined ? undefined : +v)); return; }
   const frame = line.match(/^F (\d+) (\d+) (\d+) ([01]) ([0-9a-fA-F]{390})$/);
@@ -1702,6 +1803,7 @@ function serLine(line) {
 
 async function serSend(cmd) {
   if (!serWriter) return;
+  serLog(cmd, "out");
   try { await serWriter.write(serEnc.encode(cmd + "\n")); }
   catch (e) { void serRelease("write failed", String(e)); }
 }
@@ -1851,9 +1953,50 @@ setInterval(() => {
 }, 2000);
 $("saveBtn").addEventListener("click", () => { serSaveRequested = true; void serFlush(); });
 
-if (navigator.serial) {
+/* Why a badge cannot be reached from this browser, or null if it can.
+ *
+ * A reason rather than a boolean: the controls used to be hidden silently when
+ * Web Serial was missing, and on Android they were shown and then failed at the
+ * port chooser with "No compatible devices found" - which reads as a fault in
+ * the page or the cable. Neither told anyone the truth, so say it once here.
+ *
+ * The Android case is not a browser gap. Chrome there has Web Serial, but the
+ * badge's CH340 is a vendor-specific USB device needing a kernel driver that
+ * stock Android does not ship, so no serial port is ever created for Chrome to
+ * offer. Verified on a Pixel 6a running Android 17: the badge enumerates as
+ * 1a86:7523 with no driver bound and no /dev/ttyUSB* to open. */
+function badgeUnreachableBecause() {
+  if (!window.isSecureContext)
+    return "Reaching a badge needs an https page. This one is not one, so the browser will not expose a serial port.";
+  if (!("serial" in navigator))
+    return "This browser has no Web Serial. Connecting to a badge and flashing it need Chrome or Edge on a desktop.";
+  const ua = navigator.userAgentData;
+  const android = ua && typeof ua.platform === "string"
+    ? ua.platform === "Android"
+    : /\bAndroid\b/.test(navigator.userAgent);
+  if (android)
+    return "Android will not reach this badge. Chrome here does support Web Serial, but Android ships no driver for the badge's CH340 USB adapter, so no port is ever offered. Use Chrome or Edge on a desktop. Everything else on this page works.";
+  return null;
+}
+
+$("serLogBody").addEventListener("scroll", () => {
+  const b = $("serLogBody");
+  logFollow = b.scrollHeight - b.scrollTop - b.clientHeight < 24;
+});
+
+const hwProblem = badgeUnreachableBecause();
+if (hwProblem) {
+  // Offering a control that cannot work is worse than offering none.
+  $("hwControls").hidden = true;
+  $("hwNote").textContent = hwProblem;
+  $("hwNote").hidden = false;
+} else {
   $("serBtn").hidden = false;
   $("serLink").hidden = false;
+  // Open from the start and left open on disconnect: a fault takes its own
+  // explanation with it otherwise, which is exactly when you want to read it.
+  $("serLog").hidden = false;
+  serLogSeed();
   $("serBtn").addEventListener("click", serConnect);
   // Unplugging the badge should not leave the page believing it is linked.
   navigator.serial.addEventListener("disconnect", ev => {

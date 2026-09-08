@@ -62,9 +62,19 @@ wiring fault.
 The [hosted Badge Studio](https://neednotapply.github.io/DC32-IP-Fragments/) can
 flash the badge itself — press **Flash badge**, pick the port, done. It uses
 [ESP Web Tools](https://esphome.github.io/esp-web-tools/) over Web Serial, so it
-needs Chrome or Edge and an `https` page; the pre-built image lives in
-`firmware/`. Disconnect the studio first if it is already linked, since the two
-cannot hold the same port at once.
+needs Chrome or Edge on a **desktop** and an `https` page; the images come from
+the pinned release. Disconnect the studio first if it is already linked, since
+the two cannot hold the same port at once.
+
+Android will not work, and the studio now says so rather than offering controls
+that fail. Chrome on Android does have Web Serial, but this badge speaks over a
+CH340 USB-serial chip, which is a vendor-specific USB device needing a kernel
+driver Android does not ship. Confirmed on a Pixel 6a running Android 17: the
+badge enumerates over OTG as `1a86:7523` drawing 196 mA, with no driver bound
+and no `/dev/ttyUSB*` created, so Chrome has no port to offer and reports "No
+compatible devices found". That kernel carries `ftdi_sio` and `cdc_acm` but not
+`ch341`, so an FTDI-based adapter wired to the badge's UART would work where the
+onboard chip cannot.
 
 ### Installing the studio
 
@@ -77,8 +87,8 @@ A service worker (`sw.js`) caches the page and all four firmware images at
 install time, so a badge can still be flashed with the network completely gone.
 Pages and firmware are fetched network-first and fall back to the cache, which
 means an online visit always flashes the current build and never a stale one;
-icons and fonts are served cache-first. Web Serial is still Chrome or Edge on
-desktop only — installing it on a phone gets the simulator, not the flasher.
+icons and fonts are served cache-first. Installing it on a phone gets the
+simulator, not the flasher — see above for why Android cannot reach the badge.
 
 The one gap: ESP Web Tools loads some of itself lazily from unpkg, so the very
 first flash has to happen online. After that it is cached with the rest.
@@ -372,9 +382,10 @@ marked instead of silently replaced by a free-running simulation. Older firmware
 still supports mode, brightness and hue; speed and pause are disabled until updated.
 
 Two constraints worth knowing. Web Serial is Chrome/Edge only — Firefox and
-Safari do not implement it. And it needs a top-level page: in a cross-origin
-iframe it requires `allow="serial"`, so open the file directly rather than
-through an embedded copy.
+Safari do not implement it — and on Android it exists but cannot see this badge's
+CH340, so in practice this means a desktop. And it needs a top-level page: in a
+cross-origin iframe it requires `allow="serial"`, so open the file directly
+rather than through an embedded copy.
 
 ### Why the radio is dead
 
