@@ -12,8 +12,8 @@
  * but assets are served cache-first: without a new cache name a returning
  * visitor keeps the old icons forever. (v1 -> v2 retired the gold mark;
  * v2 -> v3 folded studio.html into index.html; v3 -> v4 took the opaque
- * plate off the icons.) */
-const VERSION = 'badge-studio-v4';
+ * plate off the icons; v4 -> v5 moved the flash manifest to firmware.json.) */
+const VERSION = 'badge-studio-v5';
 const SHELL    = `${VERSION}-shell`;
 const RUNTIME  = `${VERSION}-runtime`;
 const KEEP     = new Set([SHELL, RUNTIME]);
@@ -33,7 +33,7 @@ const EXTRA = [
   './assets/icon-192.png',
   './assets/icon-512.png',
   './assets/apple-touch-icon.png',
-  './firmware/manifest.json',
+  './firmware.json',
   './firmware/bootloader.bin',
   './firmware/partitions.bin',
   './firmware/boot_app0.bin',

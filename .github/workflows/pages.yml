@@ -8,7 +8,7 @@
 # them same-origin, which is also what lets the service worker precache them for
 # flashing with no network.
 #
-# Which release ships is pinned by "version" in firmware/manifest.json. Cut a
+# Which release ships is pinned by "version" in firmware.json. Cut a
 # release, bump that one field, push: the site moves to the new firmware.
 
 name: Deploy Badge Studio
@@ -44,8 +44,8 @@ jobs:
         id: pin
         run: |
           set -euo pipefail
-          TAG=$(python3 -c "import json;print(json.load(open('firmware/manifest.json'))['version'])")
-          test -n "$TAG" || { echo "::error::firmware/manifest.json has no version"; exit 1; }
+          TAG=$(python3 -c "import json;print(json.load(open('firmware.json'))['version'])")
+          test -n "$TAG" || { echo "::error::firmware.json has no version"; exit 1; }
           echo "tag=$TAG" >> "$GITHUB_OUTPUT"
           echo "Site will ship firmware from release $TAG"
 
@@ -62,7 +62,7 @@ jobs:
                --pattern 'application.bin' \
                --dir firmware --clobber; then
             echo "::error::Could not download firmware from release '$TAG'."
-            echo "::error::Tag it and let release.yml build it, or correct the version in firmware/manifest.json."
+            echo "::error::Tag it and let release.yml build it, or correct the version in firmware.json."
             exit 1
           fi
           # The flasher writes these four. A missing one would deploy a site

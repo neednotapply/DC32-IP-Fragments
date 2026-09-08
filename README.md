@@ -11,7 +11,7 @@ The original conference sketch is preserved unchanged as `ConferenceCode_v1`.
 |---|---|
 | `DC32_Fragments.ino` | Firmware. 13 animations, persistent output settings, USB serial control. |
 | `index.html` | Browser simulator, live badge control, and firmware installer. |
-| `firmware/` | The browser installer manifest. Images are built by CI, not committed. |
+| `firmware.json` | The browser installer manifest: names the release the site ships. |
 | `.github/workflows/` | Firmware release build, and the Pages deploy that ships it. |
 | `manifest.webmanifest`, `sw.js` | Web app manifest and offline service worker. |
 | `assets/` | Badge mark, favicon and installable app icons. |
@@ -96,7 +96,7 @@ git tag v1.0.1 && git push origin v1.0.1
 the four flash parts, the merged single-image build, and `SHA256SUMS.txt`.
 
 The site does not go looking for the newest release. It ships whichever one
-`version` in `firmware/manifest.json` names, so moving the studio to new
+`version` in `firmware.json` names, so moving the studio to new
 firmware is a one-line edit and a push:
 
 ```json
@@ -118,6 +118,7 @@ The images are gitignored, not forbidden — build them whenever you like
 
 ```bash
 arduino-cli compile --fqbn esp32:esp32:esp32 --output-dir /tmp/fw .
+mkdir -p firmware
 cp /tmp/fw/DC32_Fragments.ino.bootloader.bin firmware/bootloader.bin
 cp /tmp/fw/DC32_Fragments.ino.partitions.bin firmware/partitions.bin
 cp /tmp/fw/DC32_Fragments.ino.bin firmware/application.bin
