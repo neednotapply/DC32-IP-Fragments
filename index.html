@@ -58,8 +58,17 @@
   .brand { display: flex; align-items: center; gap: 13px; }
   /* The mark is line art with no fill, so it needs its own faint emission to
      sit at the same visual weight as the gold accents further down the page. */
+  .markwrap { display: inline-flex; flex: 0 0 auto; border-radius: 3px; }
   .brand .mark { width: 46px; height: auto; flex: 0 0 auto;
-                 filter: drop-shadow(0 0 9px rgba(133,187,101,.20)); }
+                 filter: drop-shadow(0 0 9px rgba(133,187,101,.20));
+                 transition: filter .15s, transform .15s; }
+  /* The eye is only a control while the browser is actually offering an
+     install, so it grows the affordance then and stays inert otherwise. */
+  .markwrap.can-install { cursor: pointer; }
+  .markwrap.can-install:hover .mark,
+  .markwrap.can-install:focus-visible .mark {
+      filter: drop-shadow(0 0 14px rgba(133,187,101,.55)); transform: scale(1.04); }
+  .markwrap:focus-visible { outline: 2px solid var(--gold); outline-offset: 3px; }
   @media (max-width: 560px) { .brand .mark { width: 38px; } }
   .brand h1 { font-family: var(--f-display); font-weight: 700; font-size: 26px;
               letter-spacing: .01em; margin: 0; text-wrap: balance; }
@@ -90,6 +99,21 @@
   .probe.on { opacity: 1; }
   .probe b { color: var(--gold); font-weight: 600; }
 
+  /* Pause and the badge button act on what the chamber is rendering, so they
+     sit on it rather than under it. Moving them out of the transport row also
+     stops the link status being wedged between two buttons. Translucent, so
+     the artwork still reads behind them. */
+  .stagectl { position: absolute; right: 12px; bottom: 11px; display: flex;
+              flex-wrap: wrap; justify-content: flex-end; gap: 8px; }
+  .stagectl .ctl { background: rgba(6,10,9,.82); backdrop-filter: blur(3px); }
+  .stagectl .ctl:hover { background: rgba(12,19,16,.94); }
+  /* On a narrow chamber these buttons at full size span most of the width and
+     sit over the lower perimeter LEDs, which is the thing being watched. */
+  @media (max-width: 560px) {
+    .stagectl { right: 8px; bottom: 8px; gap: 6px; }
+    .stagectl .ctl { padding: 5px 8px; font-size: 10px; letter-spacing: .04em; }
+  }
+
   .nowplaying { position: absolute; left: 12px; right: 12px; top: 11px;
                 display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 8px; font-family: var(--f-display);
                 font-size: 13px; letter-spacing: .07em; text-transform: uppercase;
@@ -97,22 +121,16 @@
   .nowplaying em { font-style: normal; color: var(--silk-faint); font-family: var(--f-mono);
                    letter-spacing: 0; text-transform: none; font-size: 11px; }
 
-  /* ---- key + transport under the stage ---- */
-  /* Flex, not a two-column grid. An `auto` grid track holds its intrinsic
-     width, so the transport kept its full size and squeezed the key down to one
-     word per line at any width above the breakpoint. Wrapping lets the whole
-     transport drop to its own row instead, at whatever width it stops fitting. */
-  .understage { display: flex; flex-wrap: wrap; gap: 18px;
-                align-items: center; justify-content: space-between; }
-
-  .key { display: flex; flex-wrap: wrap; gap: 6px 18px; font-family: var(--f-mono);
-         font-size: 11px; color: var(--silk-dim);
-         flex: 1 1 260px; min-width: 0; }
-  .key i { font-style: normal; display: inline-flex; align-items: center; gap: 6px; }
-  .key i::before { content: ""; width: 7px; height: 7px; border-radius: 50%;
-                   background: var(--k, var(--silk-faint)); box-shadow: 0 0 7px var(--k, transparent); }
-
+  /* ---- transport under the stage ---- */
+  /* A direct child of .stage, which already supplies the column gap. It used to
+     share an .understage row with a colour key; that key decoded colours the
+     canvas never drew, so it and the wrapper are both gone. */
   .transport { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+  /* Status hugs the left, buttons the right. An auto margin rather than
+     space-between, because when the row wraps space-between would drop the
+     lone button group back to the left edge of its own line. */
+  .tgroup { display: flex; flex-wrap: wrap; gap: 8px; align-items: center;
+            margin-left: auto; }
   /* A custom element defaults to display:inline, which sits its slotted button
      on the text baseline rather than with its siblings. */
   esp-web-install-button { display: inline-flex; align-items: center; }
@@ -215,7 +233,7 @@
 <div class="studio">
   <header>
     <div class="brand">
-      <img class="mark" src="assets/logo-mark.png" width="743" height="750" alt="" decoding="async">
+      <span class="markwrap" id="installMark"><img class="mark" src="assets/logo-mark.png" width="743" height="750" alt="" decoding="async"></span>
       <div>
         <h1>Badge Studio</h1>
         <p>DC32 Illuminati Party badge</p>
@@ -236,26 +254,21 @@
         <canvas id="cv" width="1100" height="1000" aria-label="Simulated badge"></canvas>
         <div class="nowplaying"><span id="npName">Breathe</span><em id="npFam">ambient</em><em id="frameSource">Simulation</em></div>
         <div class="probe" id="probe"></div>
-      </div>
-
-      <div class="understage">
-        <div class="key">
-          <i style="--k:#4ad2b0">Perimeter &middot; RGB order</i>
-          <i style="--k:#c9a227">Eye 60&ndash;62 &middot; GRB order</i>
-          <i style="--k:#8a7fd4">Eye wash 63&ndash;64 &middot; aimed down at the white</i>
-          <i style="--k:#3d5a4c">Board seam &middot; 3 LEDs before each corner</i>
-        </div>
-        <div class="transport">
+        <div class="stagectl">
           <button class="ctl" id="playBtn">Pause</button>
           <button class="ctl" id="badgeBtn" title="Click to leave a menu, otherwise next animation; hold for brightness; hold again within 3 seconds to switch brightness / colour">Badge button</button>
-          <button class="ctl" id="serBtn" hidden>Connect badge</button>
-          <span class="link" id="serLink" hidden>not linked</span>
+        </div>
+      </div>
+
+      <div class="transport">
+        <span class="link" id="serLink" hidden>not linked</span>
+        <div class="tgroup">
+          <button class="ctl" id="serBtn" hidden aria-describedby="serLink">Connect badge</button>
           <esp-web-install-button manifest="firmware/manifest.json">
             <button class="ctl" id="flashBtn" slot="activate" title="Leave Erase device unchecked to keep badge settings">Flash badge</button>
             <span class="link" slot="unsupported">flashing needs Chrome or Edge</span>
             <span class="link" slot="not-allowed">flashing needs an https page</span>
           </esp-web-install-button>
-          <button class="ctl" id="installBtn" hidden title="Install Badge Studio so it opens in its own window and works without wifi">Install</button>
         </div>
       </div>
     </section>
@@ -1865,27 +1878,53 @@ if ('serviceWorker' in navigator && location.protocol.startsWith('http')) {
   });
 }
 
-const installBtn = document.getElementById('installBtn');
+const installMark = document.getElementById('installMark');
+const INSTALL_HINT = 'Install Badge Studio so it opens in its own window and works without wifi';
 let deferredPrompt = null;
+
+/* The eye doubles as the install control. It is a plain image until the
+   browser offers an install, and only then takes on button semantics - a
+   control that is announced but does nothing would be worse than none. */
+function offerInstall(on) {
+  installMark.classList.toggle('can-install', on);
+  if (on) {
+    installMark.setAttribute('role', 'button');
+    installMark.setAttribute('tabindex', '0');
+    installMark.setAttribute('aria-label', INSTALL_HINT);
+    installMark.title = INSTALL_HINT;
+  } else {
+    installMark.removeAttribute('role');
+    installMark.removeAttribute('tabindex');
+    installMark.removeAttribute('aria-label');
+    installMark.removeAttribute('title');
+  }
+}
 
 window.addEventListener('beforeinstallprompt', event => {
   event.preventDefault();          // keep the mini-infobar out of the LED chamber
   deferredPrompt = event;
-  installBtn.hidden = false;
+  offerInstall(true);
 });
 
-installBtn.addEventListener('click', async () => {
+async function runInstall() {
   if (!deferredPrompt) return;
-  installBtn.disabled = true;
-  deferredPrompt.prompt();
-  await deferredPrompt.userChoice;
-  deferredPrompt = null;           // a prompt is single-use
-  installBtn.hidden = true;
-  installBtn.disabled = false;
+  const prompt = deferredPrompt;
+  deferredPrompt = null;           // a prompt is single-use, so spend it once
+  offerInstall(false);
+  prompt.prompt();
+  const { outcome } = await prompt.userChoice;
+  if (outcome !== 'accepted') {    // dismissed: nothing left to re-offer
+    installMark.blur();
+  }
+}
+
+installMark.addEventListener('click', runInstall);
+installMark.addEventListener('keydown', event => {
+  if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); runInstall(); }
 });
 
 window.addEventListener('appinstalled', () => {
   deferredPrompt = null;
-  installBtn.hidden = true;
+  offerInstall(false);
 });
 </script>
